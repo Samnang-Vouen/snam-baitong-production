@@ -25,7 +25,7 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: |
-          npm ci
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
           npm run build
 
       - name: Start SSH agent
@@ -58,7 +58,7 @@ jobs:
           cd "${DEPLOY_PATH}"
 
           cd backend
-          npm ci --omit=dev
+          if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 
           cd "${DEPLOY_PATH}"
           if pm2 describe snam-baitong-api >/dev/null 2>&1; then
