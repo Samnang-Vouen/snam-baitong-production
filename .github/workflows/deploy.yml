@@ -39,6 +39,16 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
 
+      - name: Test SSH connection
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then echo "Missing SSH_PRIVATE_KEY secret"; exit 1; fi
+          if [ -z "${{ secrets.SSH_HOST }}" ]; then echo "Missing SSH_HOST secret"; exit 1; fi
+          if [ -z "${{ secrets.SSH_USER }}" ]; then echo "Missing SSH_USER secret"; exit 1; fi
+          if [ -z "${{ secrets.SSH_PORT }}" ]; then echo "Missing SSH_PORT secret"; exit 1; fi
+          echo "Attempting SSH to ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PORT }}"
+          ssh -vvv -o StrictHostKeyChecking=yes -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "echo ssh_ok"
+
       - name: Rsync repository to server
         run: |
           rsync -az --delete \
