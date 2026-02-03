@@ -122,10 +122,10 @@ async function createUser({ email, password, role }) {
   const temporaryPassword = password || generateTemporaryPassword();
   const password_hash = await bcrypt.hash(temporaryPassword, 10);
   
-  // Insert user with must_change_password flag set to true
+  // Insert user with explicit defaults to avoid legacy NO DEFAULT errors
   const result = await query(
-    'INSERT INTO users (email, password_hash, role, must_change_password) VALUES (?,?,?,?)',
-    [email, password_hash, role, 1]
+    'INSERT INTO users (email, password_hash, role, is_active, must_change_password, created_at, updated_at) VALUES (?,?,?,?,?,NOW(),NOW())',
+    [email, password_hash, role, 1, 1]
   );
   
   // Return user data including temporary password (only in response)
