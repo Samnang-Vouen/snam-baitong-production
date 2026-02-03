@@ -56,21 +56,43 @@ async function ensureSchema() {
     revoked_at DATETIME NULL,
     INDEX idx_qr_token (token),
     INDEX idx_qr_plant (plant_id)
-  )`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 }
 
 async function ensurePlantsSchema() {
   await db.query(`CREATE TABLE IF NOT EXISTS plants (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    farmer_image_url TEXT NULL,
-    farm_location VARCHAR(255) NOT NULL,
     plant_name VARCHAR(255) NOT NULL,
+    farmer_name VARCHAR(255) NULL,
+    location VARCHAR(255) NULL,
+    device_id VARCHAR(100) NULL,
+    qr_token VARCHAR(64) NULL,
+    farmer_image_url TEXT NULL,
+    farm_location VARCHAR(255) NULL,
     planted_date DATE NULL,
     harvest_date DATE NULL,
     status VARCHAR(50) DEFAULT 'well_planted',
     ministry_feedback TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )`);
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_plants_qr_token (qr_token)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
+
+  const addColumnIfMissing = async (sql) => {
+    try {
+      await db.query(sql);
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : '');
+      if (!msg.includes('Duplicate column name')) throw err;
+    }
+  };
+
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN farmer_image_url TEXT NULL');
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN farm_location VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN planted_date DATE NULL');
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN harvest_date DATE NULL');
+  await addColumnIfMissing("ALTER TABLE plants ADD COLUMN status VARCHAR(50) DEFAULT 'well_planted'");
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN ministry_feedback TEXT NULL');
 }
 
 async function generateQr(req, res) {

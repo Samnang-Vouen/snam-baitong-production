@@ -1,18 +1,45 @@
 const db = require('../services/mysql');
 
 async function ensureSchema() {
+  // Create base tables (compatible with older init scripts)
   await db.query(`CREATE TABLE IF NOT EXISTS plants (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    farmer_image_url TEXT NULL,
-    farm_location VARCHAR(255) NOT NULL,
     plant_name VARCHAR(255) NOT NULL,
+    farmer_name VARCHAR(255) NULL,
+    location VARCHAR(255) NULL,
+    device_id VARCHAR(100) NULL,
+    qr_token VARCHAR(64) NULL,
+    farmer_image_url TEXT NULL,
+    farm_location VARCHAR(255) NULL,
     planted_date DATE NULL,
     harvest_date DATE NULL,
     status VARCHAR(50) DEFAULT 'well_planted',
     ministry_feedback TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )`);
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_plants_qr_token (qr_token)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
 
+  // Add missing columns for installations that already have a different plants schema
+  const addColumnIfMissing = async (sql) => {
+    try {
+      await db.query(sql);
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : '');
+      if (!msg.includes('Duplicate column name')) throw err;
+    }
+  };
+
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN farmer_image_url TEXT NULL');
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN farm_location VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN planted_date DATE NULL');
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN harvest_date DATE NULL');
+  await addColumnIfMissing("ALTER TABLE plants ADD COLUMN status VARCHAR(50) DEFAULT 'well_planted'");
+  await addColumnIfMissing('ALTER TABLE plants ADD COLUMN ministry_feedback TEXT NULL');
+
+  // Create QR tokens table WITHOUT a foreign key.
+  // Older DBs may have plants.id as INT while newer code uses BIGINT; FK creation fails with errno 150.
+  // We handle cleanup manually on delete.
   await db.query(`CREATE TABLE IF NOT EXISTS qr_tokens (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     plant_id BIGINT NOT NULL,
@@ -21,9 +48,26 @@ async function ensureSchema() {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     revoked_at DATETIME NULL,
     INDEX idx_qr_token (token),
-    INDEX idx_qr_plant (plant_id),
-    CONSTRAINT fk_qr_plant FOREIGN KEY (plant_id) REFERENCES plants(id) ON DELETE CASCADE
-  )`);
+    INDEX idx_qr_plant (plant_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
+}
+
+function toPlantDto(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    plantName: row.plant_name,
+    farmLocation: row.farm_location || row.location || null,
+    farmerImage: row.farmer_image_url || null,
+    plantedDate: row.planted_date ? new Date(row.planted_date).toISOString() : null,
+    harvestDate: row.harvest_date ? new Date(row.harvest_date).toISOString() : null,
+    status: row.status || 'well_planted',
+    ministryFeedback: row.ministry_feedback || null,
+    qrToken: row.qr_token || null,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    type: 'crop',
+  };
 }
 
 async function createPlant(req, res) {
@@ -49,7 +93,7 @@ async function getPlants(req, res) {
     await ensureSchema();
     const { includeLatest } = req.query;
     const rows = await db.query('SELECT * FROM plants ORDER BY created_at DESC');
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(toPlantDto) });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to get plants', message: err.message });
   }
@@ -61,7 +105,7 @@ async function getPlant(req, res) {
     const { id } = req.params;
     const rows = await db.query('SELECT * FROM plants WHERE id = ?', [id]);
     if (!rows.length) return res.status(404).json({ success: false, error: 'Plant not found' });
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: toPlantDto(rows[0]) });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to get plant', message: err.message });
   }
@@ -77,8 +121,11 @@ async function deletePlant(req, res) {
     if (!rows.length) {
       return res.status(404).json({ success: false, error: 'Plant not found' });
     }
-    
-    // Delete the plant (CASCADE will handle qr_tokens)
+
+    // Best-effort cleanup of QR tokens (no FK constraint for cross-schema compatibility)
+    await db.query('DELETE FROM qr_tokens WHERE plant_id = ?', [id]);
+
+    // Delete the plant
     await db.query('DELETE FROM plants WHERE id = ?', [id]);
     
     res.json({ success: true, message: 'Plant deleted successfully' });
