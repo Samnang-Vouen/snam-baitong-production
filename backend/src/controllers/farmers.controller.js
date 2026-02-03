@@ -754,7 +754,16 @@ async function generateFarmerQR(req, res) {
     }
     
     const farmer = rows[0];
-    const baseUrl = (process.env.FARMER_QR_BASE_URL || process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+
+    function safeBaseUrl(req) {
+      const configured = String(process.env.FARMER_QR_BASE_URL || process.env.FRONTEND_URL || '').trim();
+      // If configured URL points to dev server or localhost, ignore it in production
+      const looksDev = /:5173\b/.test(configured) || /localhost|127\.0\.0\.1/.test(configured);
+      const chosen = looksDev || !configured ? `${req.protocol}://${req.get('host')}` : configured;
+      return chosen.replace(/\/$/, '');
+    }
+
+    const baseUrl = safeBaseUrl(req);
     const mode = String(process.env.FARMER_QR_MODE || '').toLowerCase().trim();
 
     function buildFarmerProfileUrl(farmerId) {
