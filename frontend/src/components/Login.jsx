@@ -69,7 +69,12 @@ export default function Login() {
       // Navigate to dashboard
       navigate('/');
     } catch (err) {
-      const message = err?.message || err?.response?.data?.error || t('login_failed');
+      // Prefer server-provided error details over Axios' generic message
+      const message =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        t('login_failed');
       setError(message);
     } finally {
       setLoading(false);
