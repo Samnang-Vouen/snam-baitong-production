@@ -1,0 +1,43 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "node --test",
+    "seed:admins": "node src/scripts/seed-admins.js",
+    "reset:password": "node src/scripts/reset-user-password.js",
+    "mqtt:broker": "node scripts/dev-mqtt-broker.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@influxdata/influxdb3-client": "^0.11.0",
+    "aedes": "^0.51.3",
+    "axios": "^1.6.7",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.9.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "mqtt": "^5.10.1",
+    "multer": "^2.0.2",
+    "mysql2": "^3.9.7",
+    "node-cron": "^4.2.1",
+    "qrcode": "^1.5.4",
+    "sequelize": "^6.37.7",
+    "sequelize-cli": "^6.6.5",
+    "uuid": "^9.0.1",
+    "websocket-stream": "^5.3.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}

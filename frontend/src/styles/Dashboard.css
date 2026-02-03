@@ -1,0 +1,98 @@
+/* Pointer cursor for all clickable elements */
+button,
+.btn,
+a,
+[role="button"],
+[onclick],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+select,
+.clickable {
+  cursor: pointer !important;
+}
+
+/* Keep the dashboard navbar visible while scrolling */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+}
+
+/* Hover effects for navbar buttons */
+.navbar .btn,
+.navbar button {
+  cursor: pointer !important;
+  transition: transform 0.2s ease;
+}
+
+.navbar .btn:hover,
+.navbar button:hover {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border: none !important;
+  transform: translateY(-2px) !important;
+}
+
+.navbar .btn:active,
+.navbar button:active {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border: none !important;
+  transform: translateY(0) !important;
+}
+
+.navbar .btn:focus,
+.navbar button:focus {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Responsive navbar buttons */
+@media (max-width: 768px) {
+  .navbar .btn-light {
+    padding: 0.25rem 0.5rem !important;
+    font-size: 0.75rem !important;
+    border-width: 1px !important;
+  }
+  
+  .navbar .btn-light i {
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .navbar .btn-light {
+    padding: 0.2rem 0.4rem !important;
+    font-size: 0.7rem !important;
+    border-width: 1px !important;
+    border-radius: 4px !important;
+  }
+  
+  .navbar .btn-light i {
+    font-size: 0.85rem;
+  }
+  
+  .navbar-buttons-container {
+    gap: 0.3rem !important;
+  }
+}
+
+@media (max-width: 400px) {
+  .navbar .btn-light {
+    padding: 0.15rem 0.3rem !important;
+    font-size: 0.65rem !important;
+  }
+  
+  .navbar .btn-light i {
+    font-size: 0.8rem;
+  }
+  
+  .navbar-buttons-container {
+    gap: 0.2rem !important;
+    padding-right: 0.25rem !important;
+  }
+}

@@ -1,0 +1,111 @@
+/* Sticky sensor snapshot card (keeps filters/actions visible while scrolling) */
+
+.sensor-snapshot-sticky {
+  position: sticky;
+  /* Offset for the top navbar (measured at runtime). */
+  top: calc(var(--app-navbar-height, 96px) + 8px);
+  z-index: 1020;
+}
+
+/* Sensor dashboard responsiveness */
+.sensor-dashboard-filter {
+  min-width: 220px;
+}
+
+.sensor-raw-table {
+  min-width: 720px;
+}
+
+/* Make the time-range icon readable on small screens */
+.time-range-filter .bi-clock-history {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.sensor-snapshot-toggle {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sensor-dashboard-toolbar {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .sensor-dashboard-filter {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .time-range-filter {
+    width: 100%;
+  }
+
+  .sensor-dashboard-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 576px) {
+  /* Keep snapshot accessible, but compact (collapsible) on phones. */
+  .sensor-snapshot-sticky {
+    position: sticky;
+    top: calc(var(--app-navbar-height, 96px) + 8px);
+    z-index: 1020;
+  }
+
+  .sensor-snapshot-toggle {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+  }
+
+  .sensor-snapshot--collapsed .card-body {
+    display: none;
+  }
+
+  .sensor-snapshot-sticky .card-header {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .sensor-snapshot-sticky .card-header h4 {
+    font-size: 1.05rem;
+  }
+
+  .sensor-snapshot-sticky .card-body {
+    padding: 0.75rem;
+  }
+
+  .time-range-filter .input-group-text {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  /* Ensure the icon addon + select have identical height on phones. */
+  .time-range-filter .input-group {
+    align-items: stretch;
+  }
+
+  .time-range-filter .input-group-text {
+    display: flex;
+    align-items: center;
+  }
+
+  .time-range-filter .input-group-text,
+  .time-range-filter .form-select {
+    min-height: 44px;
+  }
+
+  .sensor-dashboard-actions .btn {
+    width: 100%;
+  }
+
+  .sensor-chart-canvas {
+    height: 14rem !important;
+  }
+
+  .sensor-raw-table {
+    min-width: 640px;
+  }
+}

@@ -1,0 +1,66 @@
+# Node.js dependencies
+node_modules/
+**/node_modules/
+package-lock.json
+**/package-lock.json
+
+# Environment files
+.env
+**/.env
+*.env
+!*.env.example
+!**/.env.example
+
+# Logs & debug
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.pid
+*.pid.lock
+
+# Build & cache
+coverage/
+dist/
+build/
+.out/
+.cache/
+.tmp/
+.vite/
+**/.vite/
+*.local
+
+# Frontend frameworks
+.next/
+.nuxt/
+.expo/
+.parcel-cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Editor/IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Databases & local data
+*.sqlite
+*.db
+
+# Testing
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+
+# ESLint cache
+.eslintcache

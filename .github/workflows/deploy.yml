@@ -1,0 +1,71 @@
+name: Deploy (GCP VM)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: snam-baitong-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rsync repository to server
+        run: |
+          rsync -az --delete \
+            --exclude ".git" \
+            --exclude "**/node_modules" \
+            --exclude "backend/.env" \
+            --exclude "**/.env" \
+            -e "ssh -p ${{ secrets.SSH_PORT }}" \
+            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+
+      - name: Install backend deps + reload PM2
+        run: |
+          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" <<'SSH'
+          set -euo pipefail
+
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+
+          cd "${DEPLOY_PATH}"
+
+          cd backend
+          npm ci --omit=dev
+
+          cd "${DEPLOY_PATH}"
+          if pm2 describe snam-baitong-api >/dev/null 2>&1; then
+            pm2 reload snam-baitong-api --update-env
+          else
+            pm2 start ecosystem.config.js --only snam-baitong-api --env production --update-env
+          fi
+          pm2 save
+          SSH
+
