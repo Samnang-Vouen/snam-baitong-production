@@ -1,9 +1,13 @@
 import axios from "axios";
 
-const API_BASE =
+const configuredBase =
   typeof import.meta !== "undefined" && import.meta?.env?.VITE_API_BASE_URL
-    ? import.meta.env.VITE_API_BASE_URL
-    : "http://localhost:3000/api";
+    ? String(import.meta.env.VITE_API_BASE_URL || "").trim()
+    : "";
+
+// In production behind Nginx, use a relative base so the browser calls the same origin.
+// This avoids CORS + Private Network Access (PNA) errors from attempting to call localhost.
+const API_BASE = configuredBase || (import.meta.env.PROD ? "/api" : "http://localhost:3000/api");
 
 const client = axios.create({ 
   baseURL: API_BASE,
