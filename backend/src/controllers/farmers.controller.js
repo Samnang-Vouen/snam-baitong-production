@@ -129,6 +129,20 @@ async function ensureSchema() {
   await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN profile_image VARCHAR(500) NULL');
   await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN sensor_devices TEXT NULL');
 
+  // Ensure new schema columns exist even on legacy databases
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN first_name VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN last_name VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN phone_number VARCHAR(50) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN profile_image_url TEXT NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN crop_type VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN village_name VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN district_name VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN province_city VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN planting_date DATE NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN harvest_date DATE NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+
   // Relax legacy NOT NULL farmer_name/location if they exist and were created strict.
   await modifyColumnIfPossible('ALTER TABLE farmers MODIFY COLUMN farmer_name VARCHAR(255) NULL');
   await modifyColumnIfPossible('ALTER TABLE farmers MODIFY COLUMN location VARCHAR(255) NULL');
