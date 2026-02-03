@@ -37,6 +37,25 @@ async function ensureSchema() {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )`);
+
+  const addColumnIfMissing = async (sql) => {
+    try {
+      await db.query(sql);
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : '');
+      if (!msg.includes('Duplicate column name')) throw err;
+    }
+  };
+
+  const modifyColumnIfPossible = async (sql) => {
+    try {
+      await db.query(sql);
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : '');
+      if (msg.includes('Unknown column') || msg.includes('Check that column/key exists')) return;
+      throw err;
+    }
+  };
   
   // Add gender column if it doesn't exist (for existing tables)
   try {
@@ -87,8 +106,25 @@ async function ensureSchema() {
       console.error('Error adding ministry_feedback_viewed_at column:', err);
     }
   }
+
+  // Legacy compatibility: older init scripts created a different farmers schema.
+  // Add old columns if missing so inserts won't fail on strict NOT NULL legacy columns.
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN farmer_name VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN location VARCHAR(255) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN latitude DECIMAL(10, 8) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN longitude DECIMAL(11, 8) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN contact VARCHAR(100) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN device_id VARCHAR(100) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN qr_token VARCHAR(64) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN profile_image VARCHAR(500) NULL');
+  await addColumnIfMissing('ALTER TABLE farmers ADD COLUMN sensor_devices TEXT NULL');
+
+  // Relax legacy NOT NULL farmer_name/location if they exist and were created strict.
+  await modifyColumnIfPossible('ALTER TABLE farmers MODIFY COLUMN farmer_name VARCHAR(255) NULL');
+  await modifyColumnIfPossible('ALTER TABLE farmers MODIFY COLUMN location VARCHAR(255) NULL');
   
   // Create QR tokens table for farmers
+  // No FK here: legacy databases may have farmers.id as INT, which breaks FK creation (errno 150).
   await db.query(`CREATE TABLE IF NOT EXISTS farmer_qr_tokens (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     farmer_id BIGINT NOT NULL,
@@ -97,9 +133,8 @@ async function ensureSchema() {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     revoked_at DATETIME NULL,
     INDEX idx_farmer_qr_token (token),
-    INDEX idx_farmer_qr_farmer (farmer_id),
-    CONSTRAINT fk_farmer_qr_farmer FOREIGN KEY (farmer_id) REFERENCES farmers(id) ON DELETE CASCADE
-  )`);
+    INDEX idx_farmer_qr_farmer (farmer_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 }
 
 async function createFarmer(req, res) {
@@ -124,11 +159,38 @@ async function createFarmer(req, res) {
       }
     }
 
-    // Create the farmer (still store in sensor_devices for backward compatibility)
+    // Create the farmer (store both new + legacy columns so strict older schemas won't fail)
     const sensorDevicesStr = deviceIds.length > 0 ? deviceIds.join(',') : null;
-    const sql = `INSERT INTO farmers (first_name, last_name, gender, phone_number, profile_image_url, crop_type, village_name, district_name, province_city, planting_date, harvest_date, qr_expiration_days, sensor_devices)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-    const params = [firstName, lastName, gender || null, phoneNumber, profileImageUrl || null, cropType, villageName, districtName, provinceCity, plantingDate, harvestDate, qrExpirationDays || 365, sensorDevicesStr];
+    const legacyFarmerName = `${String(firstName).trim()} ${String(lastName).trim()}`.trim();
+    const legacyLocation = `${String(villageName).trim()}, ${String(districtName).trim()}, ${String(provinceCity).trim()}`.trim();
+    const legacyDeviceId = deviceIds.length > 0 ? deviceIds[0] : null;
+
+    const sql = `INSERT INTO farmers (
+      first_name, last_name, gender, phone_number, profile_image_url,
+      crop_type, village_name, district_name, province_city, planting_date, harvest_date,
+      qr_expiration_days, sensor_devices,
+      farmer_name, location, contact, device_id, profile_image
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    const params = [
+      firstName,
+      lastName,
+      gender || null,
+      phoneNumber,
+      profileImageUrl || null,
+      cropType,
+      villageName,
+      districtName,
+      provinceCity,
+      plantingDate,
+      harvestDate,
+      qrExpirationDays || 365,
+      sensorDevicesStr,
+      legacyFarmerName || null,
+      legacyLocation || null,
+      phoneNumber || null,
+      legacyDeviceId,
+      profileImageUrl || null,
+    ];
     const result = await db.query(sql, params);
     const farmerId = result.insertId;
 
