@@ -16,6 +16,16 @@ function safeValue(value) {
   return String(value);
 }
 
+function normalizeDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 async function ensureSchema() {
   await db.query(`CREATE TABLE IF NOT EXISTS farmers (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -149,6 +159,13 @@ async function createFarmer(req, res) {
       });
     }
 
+    const plantingDateStr = normalizeDate(plantingDate);
+    const harvestDateStr = normalizeDate(harvestDate);
+    if (!plantingDateStr || !harvestDateStr) {
+      return res.status(400).json({ success: false, error: 'Invalid date format for plantingDate or harvestDate. Expected YYYY-MM-DD.' });
+    }
+    const qrDays = Math.max(1, Math.min(365, parseInt(qrExpirationDays, 10) || 365));
+
     // Parse sensor devices - support both array and comma-separated string
     let deviceIds = [];
     if (sensorDevices) {
@@ -175,19 +192,19 @@ async function createFarmer(req, res) {
       firstName,
       lastName,
       gender || null,
-      phoneNumber,
+      String(phoneNumber).trim(),
       profileImageUrl || null,
       cropType,
       villageName,
       districtName,
       provinceCity,
-      plantingDate,
-      harvestDate,
-      qrExpirationDays || 365,
+      plantingDateStr,
+      harvestDateStr,
+      qrDays,
       sensorDevicesStr,
       legacyFarmerName || null,
       legacyLocation || null,
-      phoneNumber || null,
+      String(phoneNumber).trim() || null,
       legacyDeviceId,
       profileImageUrl || null,
     ];
@@ -243,7 +260,13 @@ async function createFarmer(req, res) {
       sensorAssignment: assignmentResults
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to create farmer', message: err.message });
+    console.error('[createFarmer] Error:', {
+      message: err && err.message,
+      code: err && err.code,
+      sqlState: err && err.sqlState,
+      sqlMessage: err && err.sqlMessage,
+    });
+    res.status(500).json({ success: false, error: 'Failed to create farmer', message: err && err.message ? err.message : 'Unknown error' });
   }
 }
 
