@@ -24,6 +24,35 @@ async function initSchema() {
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Best-effort schema alignment for legacy databases
+    const safeExec = async (sql) => {
+      try { await conn.query(sql); } catch (err) {
+        const msg = String(err && err.message || '');
+        // Ignore duplicate/exists errors
+        if (msg.includes('Duplicate column') || msg.includes('already exists') || msg.includes('checks for existence')) return;
+        // Ignore syntax issues on old MySQL when IF NOT EXISTS isn't supported
+        if (msg.includes('IF NOT EXISTS')) return;
+        // Ignore enum alter failures (legacy variants)
+        if (msg.includes('ENUM')) return;
+        // Otherwise rethrow
+        throw err;
+      }
+    };
+
+    // Add columns if missing (covers legacy installs)
+    await safeExec(`ALTER TABLE users ADD COLUMN email VARCHAR(255) NOT NULL UNIQUE`);
+    await safeExec(`ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NOT NULL`);
+    await safeExec(`ALTER TABLE users ADD COLUMN role ENUM('admin','ministry') NOT NULL`);
+    await safeExec(`ALTER TABLE users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1`);
+    await safeExec(`ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0`);
+    await safeExec(`ALTER TABLE users ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`);
+    await safeExec(`ALTER TABLE users ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`);
+
+    // Ensure unique index on email
+    await safeExec(`CREATE UNIQUE INDEX idx_users_email ON users(email)`);
+
+    // JWT blacklist table
     await conn.query(`
       CREATE TABLE IF NOT EXISTS jwt_blacklist (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,

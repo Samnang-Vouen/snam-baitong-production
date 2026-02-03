@@ -28,12 +28,17 @@ async function postUser(req, res, next) {
       temporaryPassword: result.temporaryPassword // Only returned once in API response
     });
   } catch (e) {
+    // Convert common DB conflicts to proper HTTP status
+    if (e && (e.code === 'CONFLICT' || e.errno === 1062 || e.code === 'ER_DUP_ENTRY')) {
+      return res.status(409).json({ success: false, error: 'Email already in use' });
+    }
     if (e.code === 'CONFLICT') {
       return res.status(409).json({ success: false, error: e.message });
     }
     if (e.code === 'VALIDATION_ERROR') {
       return res.status(400).json({ success: false, error: e.message });
     }
+    console.error('[postUser] Unhandled error:', { message: e?.message, code: e?.code, errno: e?.errno, sqlState: e?.sqlState });
     return next(e);
   }
 }
