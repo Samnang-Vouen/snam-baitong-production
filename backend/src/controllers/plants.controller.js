@@ -30,12 +30,28 @@ async function ensureSchema() {
     }
   };
 
+  // Some older installations created plants.farmer_name/location as NOT NULL.
+  // This API does not require farmerName, so relax those columns.
+  const modifyColumnIfPossible = async (sql) => {
+    try {
+      await db.query(sql);
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : '');
+      // Ignore if the column doesn't exist in a particular schema
+      if (msg.includes("Unknown column") || msg.includes('Check that column/key exists')) return;
+      throw err;
+    }
+  };
+
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN farmer_image_url TEXT NULL');
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN farm_location VARCHAR(255) NULL');
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN planted_date DATE NULL');
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN harvest_date DATE NULL');
   await addColumnIfMissing("ALTER TABLE plants ADD COLUMN status VARCHAR(50) DEFAULT 'well_planted'");
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN ministry_feedback TEXT NULL');
+
+  await modifyColumnIfPossible('ALTER TABLE plants MODIFY COLUMN farmer_name VARCHAR(255) NULL');
+  await modifyColumnIfPossible('ALTER TABLE plants MODIFY COLUMN location VARCHAR(255) NULL');
 
   // Create QR tokens table WITHOUT a foreign key.
   // Older DBs may have plants.id as INT while newer code uses BIGINT; FK creation fails with errno 150.
@@ -73,13 +89,21 @@ function toPlantDto(row) {
 async function createPlant(req, res) {
   try {
     await ensureSchema();
-    const { farmerImage, farmLocation, plantName, plantedDate, harvestDate } = req.body || {};
+    const { farmerImage, farmLocation, plantName, plantedDate, harvestDate, farmerName } = req.body || {};
     if (!farmLocation || !plantName) {
       return res.status(400).json({ success: false, error: 'farmLocation and plantName are required' });
     }
-    const sql = `INSERT INTO plants (farmer_image_url, farm_location, plant_name, planted_date, harvest_date)
-                 VALUES (?, ?, ?, ?, ?)`;
-    const params = [farmerImage || null, farmLocation, plantName, plantedDate || null, harvestDate || null];
+    // Prefer newer schema columns if present; farmer_name is optional.
+    const sql = `INSERT INTO plants (farmer_image_url, farm_location, plant_name, planted_date, harvest_date, farmer_name)
+                 VALUES (?, ?, ?, ?, ?, ?)`;
+    const params = [
+      farmerImage || null,
+      farmLocation,
+      plantName,
+      plantedDate || null,
+      harvestDate || null,
+      farmerName ? String(farmerName).trim() : null,
+    ];
     const result = await db.query(sql, params);
     const plantId = result.insertId;
     res.json({ success: true, plantId });

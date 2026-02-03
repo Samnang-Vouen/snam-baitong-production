@@ -87,12 +87,25 @@ async function ensurePlantsSchema() {
     }
   };
 
+  const modifyColumnIfPossible = async (sql) => {
+    try {
+      await db.query(sql);
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : '');
+      if (msg.includes("Unknown column") || msg.includes('Check that column/key exists')) return;
+      throw err;
+    }
+  };
+
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN farmer_image_url TEXT NULL');
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN farm_location VARCHAR(255) NULL');
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN planted_date DATE NULL');
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN harvest_date DATE NULL');
   await addColumnIfMissing("ALTER TABLE plants ADD COLUMN status VARCHAR(50) DEFAULT 'well_planted'");
   await addColumnIfMissing('ALTER TABLE plants ADD COLUMN ministry_feedback TEXT NULL');
+
+  await modifyColumnIfPossible('ALTER TABLE plants MODIFY COLUMN farmer_name VARCHAR(255) NULL');
+  await modifyColumnIfPossible('ALTER TABLE plants MODIFY COLUMN location VARCHAR(255) NULL');
 }
 
 async function generateQr(req, res) {
