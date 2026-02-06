@@ -145,48 +145,137 @@ const MenuService = {
         return { text, keyboard: Markup.inlineKeyboard(rows) };
     },
 
-    formatStatusMessage(data, isKhmer) {
-        if (!data) return isKhmer ? "❌ មិនមានទិន្នន័យ" : "❌ No Sensor Data";
-        
-        let header = isKhmer ? `📊 **របាយការណ៍ដីស្រែ**` : `📊 **SOIL REPORT**`;
-        header += DIVIDER;
-        
-        if (data.hardware_fault) {
-            header += isKhmer ? `\n⚠️ **ចំណាំ:** \`${data.hardware_fault}\`${DIVIDER}` : `\n⚠️ **Note:** \`${data.hardware_fault}\`${DIVIDER}`;
+    formatStatusMessage(data, isKhmer, ctx = {}) {
+        // Telegram UI-only: qualitative status layout (does not affect web API output)
+        const safeNum = (v) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        };
+
+        if (!data) {
+            const msg = isKhmer ? '❌ មិនមានទិន្នន័យ' : '❌ No data';
+            return `${isKhmer ? '📊 **ស្ថានភាពដី**' : '📊 **Soil Status**'}\n-----------------------------------\n${msg}`;
         }
 
-        const genH = isKhmer ? "💧 **១. ស្ថានភាពទូទៅ**" : "💧 **1. General Conditions**";
-        const genBody = isKhmer 
-            ? `\n   🌱 pH: \`${data.ph || 0}\`\n   🌱 សំណើមដី: \`${data.moisture || 0}%\`\n   🌱 កម្តៅដី: \`${data.soil_temp || 0}°C\`\n   🌱 កម្តៅអាកាស: \`${data.air_temp || 0}°C\`\n   🌱 សំណើមអាកាស: \`${data.air_humidity || 0}%\``
-            : `\n   🌱 pH Level: \`${data.ph || 0}\`\n   🌱 Soil Moisture: \`${data.moisture || 0}%\`\n   🌱 Soil Temperature: \`${data.soil_temp || 0}°C\`\n   🌱 Air Temp: \`${data.air_temp || 0}°C\`\n   🌱 Air Humidity: \`${data.air_humidity || 0}%\``;
+        const moisture = safeNum(data.moisture);
+        const soilTemp = safeNum(data.soil_temp);
+        const airTemp = safeNum(data.air_temp);
+        const airHum = safeNum(data.air_humidity);
 
-        const nutH = isKhmer ? "\n\n🧬 **២. ជីវជាតិដី**" : "\n\n🧬 **2. Soil Nutrients**";
-        const nutBody = isKhmer
-            ? `\n   🌱 ជាតិអាសូត (N): \`${data.nitrogen || 0} mg/kg\`\n   🌱 ផូស្វ័រ (P): \`${data.phosphorus || 0} mg/kg\`\n   🌱 ប៉ូតាស្យូម (K): \`${data.potassium || 0} mg/kg\``
-            : `\n   🌱 Nitrogen (N): \`${data.nitrogen || 0} mg/kg\`\n   🌱 Phosphorus (P): \`${data.phosphorus || 0} mg/kg\`\n   🌱 Potassium (K): \`${data.potassium || 0} mg/kg\``;
-
-        const qualH = isKhmer ? "\n\n🌾 **៣. គុណភាពដី**" : "\n\n🌾 **3. Soil Quality**";
-        const qualBody = isKhmer
-            ? `\n   🌱 ជាតិប្រៃ: \`${data.salinity || 0}\`\n   🌱 ចរន្តអគ្គិសនី: \`${data.ec || 0} uS/cm\``
-            : `\n   🌱 Salinity: \`${data.salinity || 0}\`\n   🌱 Conductivity: \`${data.ec || 0} uS/cm\``;
+        const classifyMoisture = (m) => {
+            if (m === null) return isKhmer ? 'មិនមានទិន្នន័យ' : 'No data';
+            if (m < 25) return isKhmer ? 'ស្ងួត' : 'Dry';
+            if (m <= 65) return isKhmer ? 'ធម្មតា' : 'Normal';
+            return isKhmer ? 'សើមពេក' : 'Too wet';
+        };
+        const classifySoilTemp = (t) => {
+            if (t === null) return isKhmer ? 'មិនមានទិន្នន័យ' : 'No data';
+            if (t < 18) return isKhmer ? 'ត្រជាក់' : 'Cold';
+            if (t <= 32) return isKhmer ? 'ធម្មតា' : 'Normal';
+            return isKhmer ? 'ក្តៅ' : 'Hot';
+        };
+        const classifyAirTemp = (t) => {
+            if (t === null) return isKhmer ? 'មិនមានទិន្នន័យ' : 'No data';
+            if (t < 22) return isKhmer ? 'ត្រជាក់' : 'Cool';
+            if (t <= 32) return isKhmer ? 'ធម្មតា' : 'Normal';
+            return isKhmer ? 'ក្តៅ' : 'Slightly hot';
+        };
+        const classifyHumidity = (h) => {
+            if (h === null) return isKhmer ? 'មិនមានទិន្នន័យ' : 'No data';
+            if (h < 40) return isKhmer ? 'ទាប' : 'Low';
+            if (h <= 70) return isKhmer ? 'មធ្យម' : 'Medium';
+            return isKhmer ? 'ខ្ពស់' : 'High';
+        };
 
         const now = new Date();
         const dayNum = now.getDate();
         const yearNum = now.getFullYear();
         const timePart = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Phnom_Penh' });
-        
+
         let timeStr;
         if (isKhmer) {
             const dayName = KH_DAYS[now.getDay() === 0 ? 6 : now.getDay() - 1];
             const monthName = KH_MONTHS[now.getMonth()];
-            timeStr = `ថ្ងៃ${dayName} / ${dayNum} ${monthName} / ${yearNum}${TIME_SEP}${timePart}`;
+            // Requested style: "សុក្រ / 6 កុម្ភៈ / 2026 | 01:29 AM"
+            timeStr = `${dayName} / ${dayNum} ${monthName} / ${yearNum}${TIME_SEP}${timePart}`;
         } else {
             const dayEn = now.toLocaleDateString('en-US', { weekday: 'long' });
             const monthEn = now.toLocaleDateString('en-US', { month: 'long' });
             timeStr = `${dayEn} / ${dayNum} ${monthEn} / ${yearNum}${TIME_SEP}${timePart}`;
         }
 
-        return header + genH + genBody + nutH + nutBody + qualH + qualBody + `\n\n🕒 _Update: ${timeStr}_`;
+        const pumpIsOn = !!(ctx && ctx.session && ctx.session.pump_is_on);
+        const fertIsOn = !!(ctx && ctx.session && ctx.session.fert_is_on);
+        const pumpLastAt = (ctx && ctx.session && ctx.session.pump_last_action_at) ? new Date(ctx.session.pump_last_action_at) : null;
+        const fertLastAt = (ctx && ctx.session && ctx.session.fert_last_action_at) ? new Date(ctx.session.fert_last_action_at) : null;
+
+        const RECENT_MS = 6 * 60 * 60 * 1000; // 6 hours
+        const isRecent = (d) => (d instanceof Date) && Number.isFinite(d.getTime()) && (Date.now() - d.getTime() <= RECENT_MS);
+
+        const irrigationText = pumpIsOn
+            ? (isKhmer ? 'ដំណើរការ' : 'Running')
+            : (isRecent(pumpLastAt) ? (isKhmer ? 'បានធ្វើថ្មីៗនេះ' : 'Done recently') : (isKhmer ? 'ទំនេរ' : 'Idle'));
+
+        const fertText = fertIsOn
+            ? (isKhmer ? 'ដំណើរការ' : 'Running')
+            : (isRecent(fertLastAt) ? (isKhmer ? 'បានធ្វើថ្មីៗនេះ' : 'Done recently') : (isKhmer ? 'មិនទាន់ធ្វើ' : 'Not yet'));
+
+        const systemText = data?.hardware_fault
+            ? (isKhmer ? 'មានបញ្ហា' : 'Issue detected')
+            : (data ? (isKhmer ? 'ដំណើរការធម្មតា' : 'Normal') : (isKhmer ? 'មិនមានទិន្នន័យ' : 'No data'));
+
+        const title = isKhmer ? '📊 **ស្ថានភាពដី**' : '📊 **Soil Status**';
+
+        const sec1 = isKhmer ? '💧 **១. ស្ថានភាពទូទៅ**' : '💧 **1. General Conditions**';
+        const sec2 = isKhmer ? '🌿 **២. ការគ្រប់គ្រងដំណាំ**' : '🌿 **2. Crop Management**';
+
+        const genLines = isKhmer
+            ? [
+                `   🌱 សំណើមដី៖ ${classifyMoisture(moisture)}`,
+                `   🌱 កម្តៅដី៖ ${classifySoilTemp(soilTemp)}`,
+                `   🌱 អាកាសធាតុ៖ ${classifyAirTemp(airTemp)}`,
+                `   🌱 សំណើមអាកាស៖ ${classifyHumidity(airHum)}`,
+            ]
+            : [
+                `   🌱 Soil moisture: ${classifyMoisture(moisture)}`,
+                `   🌱 Soil temperature: ${classifySoilTemp(soilTemp)}`,
+                `   🌱 Weather: ${classifyAirTemp(airTemp)}`,
+                `   🌱 Air humidity: ${classifyHumidity(airHum)}`,
+            ];
+
+        const mgmtLines = isKhmer
+            ? [
+                `   🌱 ការស្រោចស្រព៖ ${irrigationText}`,
+                `   🌱 ការដាក់ជី៖ ${fertText}`,
+                `   🌱 ប្រព័ន្ធ៖ ${systemText}`,
+            ]
+            : [
+                `   🌱 Irrigation: ${irrigationText}`,
+                `   🌱 Fertilizer: ${fertText}`,
+                `   🌱 System: ${systemText}`,
+            ];
+
+        const faultLine = data?.hardware_fault
+            ? (isKhmer ? `\n⚠️ **ចំណាំ:** ${String(data.hardware_fault)}` : `\n⚠️ **Note:** ${String(data.hardware_fault)}`)
+            : '';
+
+        const infoLine = isKhmer
+            ? `\nℹ️ ទិន្នន័យនេះផ្អែកលើស្ថានភាពប្រព័ន្ធ`
+            : `\nℹ️ This data is based on system status`;
+
+        return [
+            title,
+            '-----------------------------------',
+            sec1,
+            ...genLines,
+            '',
+            sec2,
+            ...mgmtLines,
+            '',
+            `🕒 _Update: ${timeStr}_`,
+            faultLine,
+            infoLine,
+        ].filter(Boolean).join('\n');
     },
 
     getControlMenu(isKhmer, pumpIsOn, stopAt) {
@@ -208,6 +297,7 @@ const MenuService = {
             text: `${title}${DIVIDER}${statusView}${note}\n\n${limitText}`,
             keyboard: Markup.inlineKeyboard([
                 [Markup.button.callback(btnText, pumpIsOn ? "pump_stop" : "pump_on")],
+                [Markup.button.callback(isKhmer ? "🔧 ប្តូរឧបករណ៍" : "🔧 Change Device", "device_menu")],
                 [Markup.button.callback(isKhmer ? "⬅️ ត្រឡប់ក្រោយ" : "⬅️ Back", "back_to_main")]
             ])
         };
@@ -233,6 +323,7 @@ const MenuService = {
             text: `${title}${DIVIDER}${statusView}${note}\n\n${limitText}`,
             keyboard: Markup.inlineKeyboard([
                 [Markup.button.callback(btnText, fertIsOn ? "fert_stop" : "fert_on")],
+                [Markup.button.callback(isKhmer ? "🔧 ប្តូរឧបករណ៍" : "🔧 Change Device", "device_menu")],
                 [Markup.button.callback(isKhmer ? "⬅️ ត្រឡប់ក្រោយ" : "⬅️ Back", "back_to_main")]
             ])
         };
@@ -262,7 +353,7 @@ const MenuService = {
         return header + body + advice;
     },
 
-    formatLogbookMonthlyMessage(historyData, isKhmer, monthName, currentY, page = 1) {
+    formatLogbookMonthlyMessage(historyData, isKhmer, monthName, currentY, page = 1, maxWeeks = null) {
         const weekLabel = isKhmer ? `សប្តាហ៍ទី ${page}` : `Week ${page}`;
         const header = isKhmer 
             ? `📊 **របាយការណ៍ ${monthName} ${currentY}**\n(${weekLabel})${DIVIDER}` 
@@ -290,10 +381,14 @@ const MenuService = {
             });
         }
 
+        const safeMax = Number.isFinite(maxWeeks) && maxWeeks > 0 ? Math.floor(maxWeeks) : null;
+        const prevWeek = Math.max(1, page - 1);
+        const nextWeek = safeMax ? Math.min(safeMax, page + 1) : (page + 1);
+
         const keyboard = Markup.inlineKeyboard([
             [
-                Markup.button.callback(isKhmer ? "⬅️ សប្តាហ៍មុន" : "⬅️ Prev Week", `week_${page - 1}`),
-                Markup.button.callback(isKhmer ? "សប្តាហ៍បន្ទាប់ ➡️" : "Next Week ➡️", `week_${page + 1}`)
+                Markup.button.callback(isKhmer ? "⬅️ សប្តាហ៍មុន" : "⬅️ Prev Week", `week_${prevWeek}`),
+                Markup.button.callback(isKhmer ? "សប្តាហ៍បន្ទាប់ ➡️" : "Next Week ➡️", `week_${nextWeek}`)
             ],
             [
                 Markup.button.callback(isKhmer ? "⬅️ ខែមុន" : "⬅️ Last Month", "log_prev"),

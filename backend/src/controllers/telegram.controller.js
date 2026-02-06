@@ -319,14 +319,18 @@ async function verify(req, res) {
 
       // Resolve sensor devices via junction table (new) or legacy string
       let devices = [];
+      const legacyStr = farmer.sensor_devices || '';
+      const legacyDevices = legacyStr ? String(legacyStr).split(',').map(d => d.trim()).filter(Boolean) : [];
+
       try {
         const sensorsService = require('../services/sensors.service');
         const sensors = await sensorsService.getFarmerSensors(farmer.id);
-        const deviceIdsFromJunction = sensors.map(s => s.device_id).filter(Boolean);
-        const legacyStr = farmer.sensor_devices || '';
-        const legacyDevices = legacyStr ? legacyStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+        const deviceIdsFromJunction = Array.isArray(sensors) ? sensors.map(s => s.device_id).filter(Boolean) : [];
         devices = deviceIdsFromJunction.length ? deviceIdsFromJunction : legacyDevices;
-      } catch (_) {}
+      } catch (e) {
+        // If new schema is not available or DB errors occur, fall back to legacy.
+        devices = legacyDevices;
+      }
       const devicesText = devices.length ? devices.join(', ') : 'None';
 
       const en = [

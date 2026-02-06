@@ -104,6 +104,12 @@ async function handlePumpToggle(ctx) {
         logEn = "Pump Turned OFF";
     }
 
+    // Track last action for qualitative Soil Status display
+    try {
+        if (!ctx.session) ctx.session = {};
+        ctx.session.pump_last_action_at = new Date().toISOString();
+    } catch (_) {}
+
     try {
         // Prefer MQTT for remote control; fallback to HTTP gateway when explicitly configured
         if (CONTROL_MODE === 'MQTT') {

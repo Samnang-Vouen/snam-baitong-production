@@ -1,5 +1,7 @@
 const { Markup } = require('telegraf');
 const api = require('../../services/api.service');
+const sensorsService = require('../../services/sensors.service');
+const db = require('../../services/mysql');
 
 function toEnglishDigits(s) {
   if (!s) return '';
@@ -59,6 +61,31 @@ async function completeVerification(ctx, farmer) {
       ctx.session.lon = undefined;
     }
   } catch (_) {}
+
+  // Best-effort: auto-select first sensor device for this farmer.
+  // This prevents pump/fertilizer/logbook buttons from silently doing nothing.
+  try {
+    const farmerId = farmer?.id;
+    if (farmerId && !ctx.session.deviceId) {
+      let devices = [];
+      try {
+        const sensors = await sensorsService.getFarmerSensors(farmerId);
+        devices = sensors.map(s => s.device_id).filter(Boolean);
+      } catch (_) {}
+
+      if (!devices.length) {
+        const rows = await db.query('SELECT sensor_devices FROM farmers WHERE id = ? LIMIT 1', [farmerId]);
+        const legacyStr = rows && rows[0] ? (rows[0].sensor_devices || '') : '';
+        devices = legacyStr ? String(legacyStr).split(',').map(d => d.trim()).filter(Boolean) : [];
+      }
+
+      if (devices.length) {
+        ctx.session.deviceId = devices[0];
+        ctx.session.deviceIds = devices;
+      }
+    }
+  } catch (_) {}
+
   // Remove the custom reply keyboard (backend will send success message)
   await ctx.reply(' ', Markup.removeKeyboard()).catch(() => {});
   // Continue onboarding with language selection

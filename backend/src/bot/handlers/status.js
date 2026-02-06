@@ -35,7 +35,7 @@ async function handleStatus(ctx) {
 
     // 3. Format & Deliver using MenuService
     // formatStatusMessage now includes the UXUI sections (1. General, 2. Nutrients, 3. Quality)
-    const dashboardText = MenuService.formatStatusMessage(sensorData, isKhmer);
+    const dashboardText = MenuService.formatStatusMessage(sensorData, isKhmer, ctx);
     const keyboard = MenuService.getStatusKeyboard(isKhmer);
 
     // 4. Reliable UI Delivery

@@ -104,6 +104,12 @@ async function handleFertToggle(ctx) {
         logEn = "Fertilizer Stopped";
     }
 
+    // Track last action for qualitative Soil Status display
+    try {
+        if (!ctx.session) ctx.session = {};
+        ctx.session.fert_last_action_at = new Date().toISOString();
+    } catch (_) {}
+
     try {
         if (CONTROL_MODE === 'MQTT') {
             try { mqttService.init(); } catch (_) {}

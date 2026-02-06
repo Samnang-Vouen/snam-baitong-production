@@ -6,7 +6,6 @@ const MenuService = require('../menus');
 const dbService = require('../../services/db.service');
 const api = require('../../services/api.service');
 const sensorsService = require('../../services/sensors.service');
-const soilHealthService = require('../../services/soilHealth.service');
 const db = require('../../services/mysql');
 
 const CAT = {
@@ -24,6 +23,40 @@ function getMaxWeeks(month, year) {
     return Math.ceil(lastDay / 7);
 }
 
+async function resolveDeviceId(ctx) {
+    if (ctx.session?.deviceId) return ctx.session.deviceId;
+
+    try {
+        const telegramUserId = ctx.from?.id;
+        const chatId = ctx.chat?.id;
+        const verified = await api.checkVerified({ telegramUserId, chatId });
+        if (!(verified?.success && verified?.verified && verified?.farmer?.id)) return null;
+
+        const farmerId = verified.farmer.id;
+        const farmerRows = await db.query('SELECT * FROM farmers WHERE id = ? LIMIT 1', [farmerId]);
+        const farmer = Array.isArray(farmerRows) && farmerRows.length ? farmerRows[0] : null;
+
+        let devices = [];
+        try {
+            const sensors = await sensorsService.getFarmerSensors(farmerId);
+            devices = sensors.map(s => s.device_id).filter(Boolean);
+        } catch (_) {}
+
+        if (!devices.length && farmer?.sensor_devices) {
+            devices = String(farmer.sensor_devices).split(',').map(d => d.trim()).filter(Boolean);
+        }
+
+        const deviceId = devices[0] || null;
+        if (deviceId) {
+            ctx.session.deviceId = deviceId;
+            ctx.session.deviceIds = devices;
+        }
+        return deviceId;
+    } catch (_) {
+        return null;
+    }
+}
+
 async function logEvent(deviceId, category, activityKh, activityEn) {
     const safeId = deviceId;
     try {
@@ -36,7 +69,6 @@ async function logEvent(deviceId, category, activityKh, activityEn) {
 
 async function handleLogbook(ctx) {
     const isKhmer = ctx.session?.is_khmer !== false;
-    const deviceId = ctx.session?.deviceId || null;
     const query = ctx.callbackQuery;
     const data = query ? query.data : "";
 
@@ -66,76 +98,60 @@ async function handleLogbook(ctx) {
             currentP = 1;
         } else if (data.startsWith("week_")) {
             const requestedP = parseInt(data.split("_")[1]);
-            // New rule: defer clamping to actual cultivationHistory length later
             currentP = isNaN(requestedP) ? 1 : requestedP;
         }
         await ctx.answerCbQuery().catch(() => {});
     }
+
+    // Clamp week within month reality
+    const maxWeeks = getMaxWeeks(currentM, currentY);
+    if (currentP < 1) currentP = 1;
+    if (currentP > maxWeeks) currentP = maxWeeks;
 
     // Sync back to session
     ctx.session.logViewMonth = currentM;
     ctx.session.logViewYear = currentY;
     ctx.session.logPage = currentP;
 
-    // 3. Data Retrieval: Use the same data as Cultivation History
-    let cultivationHistory = [];
-    let selectedWeek = null;
-    let totalWeeks = 0;
-    let headerMonth = null;
-    let headerYear = null;
-    try {
-        const telegramUserId = ctx.from?.id;
-        const chatId = ctx.chat?.id;
-        const verified = await api.checkVerified({ telegramUserId, chatId });
-        if (verified?.success && verified?.verified && verified?.farmer?.id) {
-            const farmerId = verified.farmer.id;
+    // 3. Data Retrieval: Activity logs (pump/fertilizer/etc.)
+    const deviceId = await resolveDeviceId(ctx);
+    if (!deviceId && DEFAULT_DEVICE_ID) ctx.session.deviceId = DEFAULT_DEVICE_ID;
+    const effectiveDeviceId = deviceId || ctx.session?.deviceId || null;
 
-            // Fetch farmer record for planting date and crop type
-            const farmerRows = await db.query('SELECT * FROM farmers WHERE id = ? LIMIT 1', [farmerId]);
-            const farmer = Array.isArray(farmerRows) && farmerRows.length ? farmerRows[0] : null;
-            if (!farmer) throw new Error('Farmer not found');
-
-            // Resolve sensor devices via sensors service, fallback to legacy field
-            let sensorDevices = [];
-            try {
-                const sensors = await sensorsService.getFarmerSensors(farmerId);
-                sensorDevices = sensors.map(s => s.device_id).filter(Boolean);
-            } catch (_) {
-                // Fallback to old sensor_devices field
-                if (farmer.sensor_devices) {
-                    sensorDevices = String(farmer.sensor_devices).split(',').map(d => d.trim()).filter(Boolean);
-                }
+    if (!effectiveDeviceId) {
+        const msg = isKhmer
+            ? '📭 មិនមានឧបករណ៍សិនស័រភ្ជាប់ទៅកសិករនេះទេ។ សូមអោយ Admin កំណត់ Sensor Device ជាមុន។'
+            : '📭 No sensor device is assigned to this farmer. Please ask an admin to assign a Sensor Device first.';
+        const { keyboard } = MenuService.getMainMenu(isKhmer);
+        try {
+            if (query) {
+                await ctx.editMessageText(msg, { reply_markup: keyboard.reply_markup, parse_mode: 'Markdown' });
+            } else {
+                await ctx.replyWithMarkdown(msg, { reply_markup: keyboard.reply_markup });
             }
-
-            if (sensorDevices.length > 0 && farmer.planting_date) {
-                const cropType = farmer.crop_type || 'general';
-                const historyResult = await soilHealthService.calculateCultivationHistory(sensorDevices, farmer.planting_date, cropType);
-                if (historyResult?.success) {
-                    cultivationHistory = Array.isArray(historyResult.cultivationHistory) ? historyResult.cultivationHistory : [];
-                    totalWeeks = cultivationHistory.length;
-                    // Clamp currentP based on available weeks
-                    if (totalWeeks > 0) {
-                        if (currentP < 1) currentP = 1;
-                        if (currentP > totalWeeks) currentP = totalWeeks;
-                        ctx.session.logPage = currentP;
-                        selectedWeek = cultivationHistory[currentP - 1];
-                        if (selectedWeek && selectedWeek.weekStart) {
-                            const d = new Date(selectedWeek.weekStart);
-                            headerMonth = isKhmer ? MenuService.KH_MONTHS[d.getMonth()] : d.toLocaleString('en-US', { month: 'long' });
-                            headerYear = d.getFullYear();
-                        }
-                    }
-                }
-            }
-        }
-    } catch (error) {
-        console.error("🔥 Cultivation History Retrieval Failed:", error);
+        } catch (_) {}
+        return;
     }
 
-    // 4. Format & Delivery using Soil Health weekly data
-    const { text, keyboard } = MenuService.formatCultivationHistoryWeeklyMessage(
-        selectedWeek, isKhmer, headerMonth || (isKhmer ? MenuService.KH_MONTHS[currentM - 1] : new Date(currentY, currentM - 1).toLocaleString('en-US', { month: 'long' })),
-        headerYear || currentY, currentP, totalWeeks
+    let logs = [];
+    try {
+        logs = await dbService.getMonthlyLog(effectiveDeviceId, currentM, currentY, currentP);
+    } catch (error) {
+        console.error('🔥 Logbook Fetch Error:', error);
+        logs = [];
+    }
+
+    const monthName = isKhmer
+        ? MenuService.KH_MONTHS[currentM - 1]
+        : new Date(currentY, currentM - 1).toLocaleString('en-US', { month: 'long' });
+
+    const { text, keyboard } = MenuService.formatLogbookMonthlyMessage(
+        logs,
+        isKhmer,
+        monthName,
+        currentY,
+        currentP,
+        maxWeeks
     );
 
     try {
