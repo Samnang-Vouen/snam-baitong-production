@@ -280,21 +280,17 @@ const MenuService = {
 
     getControlMenu(isKhmer, pumpIsOn, stopAt) {
         const title = isKhmer ? "💧 **បញ្ជាការស្រោចស្រព**" : "💧 **Irrigation Control**";
-        const limitText = isKhmer 
-            ? `ℹ️ ម៉ូទ័រទឹកនឹងបិទអូតូក្នុងរយៈពេល ${MAX_PUMP_TIME_MINS} នាទី` 
-            : `ℹ️ Water pump will auto-close in ${MAX_PUMP_TIME_MINS} mins`;
 
         const statusView = pumpIsOn 
             ? (isKhmer ? "🟢 **ម៉ូទ័រទឹកកំពុងដំណើរការ**" : "🟢 **PUMP IS ON**")
             : (isKhmer ? "🔴 **ម៉ូទ័រទឹក៖ ទំនេរ**" : "🔴 **PUMP: IDLE**");
-        
-        const note = pumpIsOn && stopAt ? (isKhmer ? `\n⏱ _នឹងបិទនៅម៉ោង: ${stopAt}_` : `\n⏱ _Will close at: ${stopAt}_`) : "";
+
         const btnText = pumpIsOn 
             ? (isKhmer ? "🔴 បិទម៉ូទ័រទឹក" : "🔴 STOP PUMP")
             : (isKhmer ? "🟢 បើកម៉ូទ័រទឹក" : "🟢 START PUMP");
 
         return {
-            text: `${title}${DIVIDER}${statusView}${note}\n\n${limitText}`,
+            text: `${title}${DIVIDER}${statusView}`,
             keyboard: Markup.inlineKeyboard([
                 [Markup.button.callback(btnText, pumpIsOn ? "pump_stop" : "pump_on")],
                 [Markup.button.callback(isKhmer ? "🔧 ប្តូរឧបករណ៍" : "🔧 Change Device", "device_menu")],
@@ -305,22 +301,17 @@ const MenuService = {
 
     getFertilizerMenu(isKhmer, fertIsOn, stopAt) {
         const title = isKhmer ? "🌿 **អាហារូបត្ថម្ភដំណាំ (ជី)**" : "🌿 **Crop Nutrition (Fertilizer)**";
-        const limitText = isKhmer 
-            ? `ℹ️ ម៉ូទ័រដាក់ជីនឹងបិទអូតូក្នុងរយៈពេល ${MAX_FERT_TIME_MINS} នាទី` 
-            : `ℹ️ Fertilizer pump will auto-close in ${MAX_FERT_TIME_MINS} mins`;
 
         const statusView = fertIsOn 
             ? (isKhmer ? "🟢 **ម៉ូទ័រជីកំពុងដំណើរការ**" : "🟢 **FERTILIZER IS ON**")
             : (isKhmer ? "🔴 **ម៉ូទ័រជី៖ ទំនេរ**" : "🔴 **FERT PUMP: IDLE**");
-        
-        const note = fertIsOn && stopAt ? (isKhmer ? `\n⏱ _នឹងបិទនៅម៉ោង: ${stopAt}_` : `\n⏱ _Will close at: ${stopAt}_`) : "";
-        
+
         const btnText = fertIsOn 
             ? (isKhmer ? "🔴 បិទម៉ូទ័រជី" : "🔴 STOP FERTILIZER")
             : (isKhmer ? "🟢 បើកម៉ូទ័រជី" : "🟢 START FERTILIZER");
 
         return {
-            text: `${title}${DIVIDER}${statusView}${note}\n\n${limitText}`,
+            text: `${title}${DIVIDER}${statusView}`,
             keyboard: Markup.inlineKeyboard([
                 [Markup.button.callback(btnText, fertIsOn ? "fert_stop" : "fert_on")],
                 [Markup.button.callback(isKhmer ? "🔧 ប្តូរឧបករណ៍" : "🔧 Change Device", "device_menu")],
