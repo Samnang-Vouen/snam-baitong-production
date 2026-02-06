@@ -25,6 +25,8 @@ module.exports = {
       env_production: {
         NODE_ENV: 'production',
         HOST: '127.0.0.1',
+        // Ensure internal bot API calls target the correct port
+        BACKEND_BASE_URL: 'http://127.0.0.1:3000',
       },
     },
     {

@@ -1,8 +1,9 @@
 const axios = require('axios');
 
 // Backend base URL for bot API calls
-// Defaults to local dev server on port 5000
-const BASE_URL = process.env.BACKEND_BASE_URL || 'http://127.0.0.1:5000';
+// Defaults based on environment: prod=3000, dev=5000
+const DEFAULT_PORT = (process.env.NODE_ENV === 'production') ? 3000 : 5000;
+const BASE_URL = process.env.BACKEND_BASE_URL || `http://127.0.0.1:${DEFAULT_PORT}`;
 
 async function verifyPhone({ telegramUserId, chatId, phoneNumber }) {
   const url = `${BASE_URL}/api/telegram/verify`;
