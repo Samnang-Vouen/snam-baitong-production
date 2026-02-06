@@ -60,11 +60,14 @@ const dbService = {
                 return null;
             }
             const queryApi = client.getQueryApi(INFLUX_ORG);
+            // Influx returns one row per field; pivot combines fields into one record.
             const query = `from(bucket: "${INFLUX_BUCKET}")
                 |> range(start: -1h)
                 |> filter(fn: (r) => r["_measurement"] == "${INFLUX_MEASUREMENT}")
                 |> filter(fn: (r) => r["device"] == "${deviceId}")
-                |> last()`;
+                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+                |> sort(columns: ["_time"], desc: true)
+                |> limit(n: 1)`;
             
             const result = await queryApi.collectRows(query);
             return this.validateHardware(result && result[0] ? result[0] : null);
@@ -127,6 +130,7 @@ const dbService = {
                 |> range(start: ${startOfMonth}, stop: ${endOfMonth})
                 |> filter(fn: (r) => r["_measurement"] == "activity_logs")
                 |> filter(fn: (r) => r["device"] == "${deviceId}")
+                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 |> sort(columns: ["_time"], desc: true)`;
 
             const rows = await queryApi.collectRows(query);

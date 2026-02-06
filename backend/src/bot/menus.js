@@ -99,7 +99,7 @@ const MenuService = {
             [Markup.button.callback(isKhmer ? "📊 ស្ថានភាពដី" : "📊 Soil Status", "status")],
             [Markup.button.callback(isKhmer ? "🌦 អាកាសធាតុ" : "🌦 Weather", "weather")],
             [Markup.button.callback(isKhmer ? "💧 បញ្ជាការស្រោចស្រព" : "💧 Irrigation Control", "control")],
-            [Markup.button.callback(isKhmer ? "🌿 អាហារូបត្ថម្ភដំណាំ" : "🌿 Crop Nutrition", "fertilizer")],
+            [Markup.button.callback(isKhmer ? "🌿 ដាក់ជីដំណាំ" : "🌿 Crop Nutrition", "fertilizer")],
             [Markup.button.callback(isKhmer ? "📝 កំណត់ត្រាកសិកម្ម" : "📝 Farm Logbook", "logbook")],
             [Markup.button.callback(isKhmer ? "👤 ប្រវត្តិ" : "👤 Profile", "profile")],
             [Markup.button.callback(isKhmer ? "❓ ជំនួយ និងព័ត៌មាន" : "❓ Help & Info", "help_info")],
@@ -376,7 +376,9 @@ const MenuService = {
                     ? `ថ្ងៃទី ${date.getDate()} | ${timeStr}` 
                     : `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} | ${timeStr}`;
                 
-                const activityText = isKhmer ? log.textKh : log.textEn;
+                const activityText = isKhmer
+                    ? (log.textKh ?? log.textEn ?? '—')
+                    : (log.textEn ?? log.textKh ?? '—');
                 body += `🔹 **${dStr}**\n└ ${activityText}\n\n`;
             });
         }
