@@ -34,6 +34,14 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           log-public-key: false
 
+      - name: Verify SSH keys loaded
+        run: |
+          set -euo pipefail
+          echo "Listing identities from ssh-agent:"
+          ssh-add -l || echo "No identities loaded"
+          echo "Runner SSH directory contents:"
+          ls -la ~/.ssh || true
+
       - name: Add host to known_hosts
         run: |
           mkdir -p ~/.ssh
