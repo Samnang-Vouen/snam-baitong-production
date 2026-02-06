@@ -1,10 +1,15 @@
-/* Sticky sensor snapshot card (keeps filters/actions visible while scrolling) */
+/* Sensor snapshot: make the entire card sticky below the navbar */
 
 .sensor-snapshot-sticky {
-  position: sticky;
-  /* Offset for the top navbar (measured at runtime). */
+  position: sticky !important; /* override Bootstrap .card { position: relative } */
   top: calc(var(--app-navbar-height, 96px) + 8px);
   z-index: 1020;
+  background-color: var(--bs-card-bg, #fff); /* keep card solid, not transparent */
+}
+
+.sensor-snapshot-sticky .card-header {
+  position: relative;
+  z-index: 1;
 }
 
 /* Sensor dashboard responsiveness */
@@ -23,6 +28,13 @@
 }
 
 .sensor-snapshot-toggle {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* Collapsed snapshot hides body globally (desktop + mobile) */
+.sensor-snapshot--collapsed .card-body {
   display: none;
 }
 
@@ -48,22 +60,9 @@
 }
 
 @media (max-width: 576px) {
-  /* Keep snapshot accessible, but compact (collapsible) on phones. */
-  .sensor-snapshot-sticky {
-    position: sticky;
-    top: calc(var(--app-navbar-height, 96px) + 8px);
-    z-index: 1020;
-  }
+  /* Header is sticky on phones as well (already set above) */
 
-  .sensor-snapshot-toggle {
-    display: inline-flex;
-    align-items: center;
-    white-space: nowrap;
-  }
-
-  .sensor-snapshot--collapsed .card-body {
-    display: none;
-  }
+  /* Toggle already visible globally; keep sizing adjustments on mobile */
 
   .sensor-snapshot-sticky .card-header {
     padding: 0.5rem 0.75rem;
@@ -109,3 +108,26 @@
     min-width: 640px;
   }
 }
+
+/* Allow overlays inside the snapshot card */
+.sensor-snapshot {
+  position: relative;
+}
+
+/* Floating toggle visible when the snapshot card is stuck */
+.sensor-snapshot-floating-toggle {
+  position: fixed;
+  top: calc(var(--app-navbar-height, 96px) + 8px);
+  right: 12px;
+  z-index: 1040; /* above sticky content, below modals */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+@media (max-width: 576px) {
+  .sensor-snapshot-floating-toggle {
+    right: 8px;
+    top: calc(var(--app-navbar-height, 96px) + 6px);
+  }
+}
+
+/* Spacer removed in favor of margin-bottom on collapsed sticky snapshot */

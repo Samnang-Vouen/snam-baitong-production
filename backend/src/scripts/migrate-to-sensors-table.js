@@ -1,4 +1,7 @@
-require('dotenv').config();
+const dotenv = require('dotenv');
+// Load .env.local first if present, then fallback to .env
+dotenv.config({ path: '.env.local' });
+dotenv.config();
 const mysql = require('../services/mysql');
 
 async function migrateSensorsData() {

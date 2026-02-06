@@ -1,4 +1,5 @@
 import { useLanguage } from './LanguageToggle';
+import { formatDateTime } from '../utils/date';
 
 export default function FeedbackCard({ 
   role, 
@@ -6,12 +7,57 @@ export default function FeedbackCard({
   ministryFeedback, 
   feedbackSaving, 
   onFeedbackChange, 
-  onFeedbackSave 
+  onFeedbackSave,
+  feedbacks = [],
+  feedbacksLoading = false,
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+
+  const renderFeedbackHistory = () => {
+    const hasEntries = Array.isArray(feedbacks) && feedbacks.length > 0;
+    return (
+      <div className="card shadow-sm mt-3">
+        <div className="card-header bg-light">
+          <h6 className="mb-0" style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1rem)' }}>
+            <i className="bi bi-clock-history me-2"></i>
+            {t('feedback_history') || 'Feedback History'}
+          </h6>
+        </div>
+        <div className="card-body">
+          {feedbacksLoading && (
+            <div className="text-muted" style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1rem)' }}>
+              <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              {t('loading')}
+            </div>
+          )}
+          {!feedbacksLoading && !hasEntries && (
+            <p className="text-muted mb-0" style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1rem)' }}>
+              <i className="bi bi-info-circle me-2"></i>
+              {t('no_feedback_from_ministry_yet')}
+            </p>
+          )}
+          {!feedbacksLoading && hasEntries && (
+            <div style={{ maxHeight: feedbacks.length > 1 ? '220px' : 'none', overflowY: feedbacks.length > 1 ? 'auto' : 'visible' }}>
+              {feedbacks.map((fb) => (
+                <div key={fb.id} className="border rounded-3 p-2 mb-2 bg-warning bg-opacity-10">
+                  <div className="d-flex justify-content-between align-items-center mb-1">
+                    <span className="badge bg-warning text-dark">{fb.createdByRole || 'ministry'}</span>
+                    <span className="text-muted small">{formatDateTime(fb.createdAt, lang)}</span>
+                  </div>
+                  <div style={{ whiteSpace: 'pre-wrap', fontSize: 'clamp(0.85rem, 2.5vw, 1rem)' }}>{fb.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   if (role === 'admin') {
     // Admin view - Display feedback
+    const hasEntries = Array.isArray(feedbacks) && feedbacks.length > 0;
+    const hasSnapshot = !!farmer?.ministryFeedback;
     return (
       <div className="card shadow-sm">
         <div className="card-header bg-warning text-dark">
@@ -22,11 +68,35 @@ export default function FeedbackCard({
           </h4>
         </div>
         <div className="card-body">
-          {farmer?.ministryFeedback ? (
+          {/* Use this card to show feedback history (latest-first) */}
+          {feedbacksLoading && (
+            <div className="text-muted" style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1rem)' }}>
+              <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              {t('loading')}
+            </div>
+          )}
+
+          {!feedbacksLoading && hasEntries && (
+            <div style={{ maxHeight: feedbacks.length > 1 ? '220px' : 'none', overflowY: feedbacks.length > 1 ? 'auto' : 'visible' }}>
+              {feedbacks.map((fb) => (
+                <div key={fb.id} className="border rounded-3 p-2 mb-2 bg-warning bg-opacity-10">
+                  <div className="d-flex justify-content-between align-items-center mb-1">
+                    <span className="badge bg-warning text-dark">{fb.createdByRole || 'ministry'}</span>
+                    <span className="text-muted small">{formatDateTime(fb.createdAt, lang)}</span>
+                  </div>
+                  <div style={{ whiteSpace: 'pre-wrap', fontSize: 'clamp(0.85rem, 2.5vw, 1rem)' }}>{fb.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!feedbacksLoading && !hasEntries && hasSnapshot && (
             <div className="alert alert-warning mb-0">
               <p className="mb-0" style={{ whiteSpace: 'pre-wrap', fontSize: 'clamp(0.85rem, 2.5vw, 1rem)' }}>{farmer.ministryFeedback}</p>
             </div>
-          ) : (
+          )}
+
+          {!feedbacksLoading && !hasEntries && !hasSnapshot && (
             <p className="text-muted mb-0" style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1rem)' }}>
               <i className="bi bi-info-circle me-2"></i>
               {t('no_feedback_from_ministry_yet')}
@@ -83,6 +153,8 @@ export default function FeedbackCard({
             )}
           </button>
         </div>
+        {/* History list below main card */}
+        {renderFeedbackHistory()}
       </div>
     );
   }

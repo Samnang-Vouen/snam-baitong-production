@@ -7,7 +7,7 @@ import {
   Tooltip,
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import { formatValue, isOutOfRange } from '../../utils/sensorRanges';
+import { formatValue, getMetricStatus } from '../../utils/sensorRanges';
 import { useLanguage } from '../LanguageToggle';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -24,22 +24,25 @@ function hexToRgba(hex, alpha) {
 
 function defaultColorForMetric(metric) {
   switch (metric) {
-    case 'temperature':
-      // Use a non-red base color so red can be reserved for out-of-range highlighting.
+    case 'air_temp':
       return '#6366f1';
-    case 'humidity':
+    case 'soil_temp':
+      return '#f97316';
+    case 'air_humidity':
     case 'moisture':
       return '#0ea5e9';
     case 'ec':
       return '#f59e0b';
     case 'ph':
       return '#16a34a';
-    case 'n':
+    case 'nitrogen':
       return '#7c3aed';
-    case 'p':
+    case 'phosphorus':
       return '#db2777';
-    case 'k':
+    case 'potassium':
       return '#334155';
+    case 'salinity':
+      return '#14b8a6';
     default:
       return '#64748b';
   }
@@ -50,22 +53,26 @@ export default function ChartJsSlotBarChart({ title, description, data, metrics 
 
   const labelForMetric = (metric) => {
     switch (metric) {
-      case 'temperature':
-        return t('temperature');
-      case 'humidity':
-        return t('humidity');
+      case 'air_temp':
+        return t('air_temp');
+      case 'soil_temp':
+        return t('soil_temp');
+      case 'air_humidity':
+        return t('air_humidity');
       case 'moisture':
         return t('moisture');
       case 'ec':
         return t('ec');
       case 'ph':
         return t('ph');
-      case 'n':
-        return 'N';
-      case 'p':
-        return 'P';
-      case 'k':
-        return 'K';
+      case 'nitrogen':
+        return t('nitrogen');
+      case 'phosphorus':
+        return t('phosphorus');
+      case 'potassium':
+        return t('potassium');
+      case 'salinity':
+        return t('salinity');
       default:
         return metric;
     }
@@ -101,10 +108,14 @@ export default function ChartJsSlotBarChart({ title, description, data, metrics 
         const v = r?.[metric];
         return v === '' || v === undefined ? null : v ?? null;
       }),
-      borderColor: filteredRows.map((r) => (isOutOfRange(metric, r?.[metric]) ? '#dc2626' : base)),
-      backgroundColor: filteredRows.map((r) =>
-        isOutOfRange(metric, r?.[metric]) ? hexToRgba('#dc2626', 0.18) : hexToRgba(base, 0.18)
-      ),
+      borderColor: filteredRows.map((r) => {
+        const status = getMetricStatus(metric, r?.[metric]);
+        return status.outOfRange ? '#dc2626' : base;
+      }),
+      backgroundColor: filteredRows.map((r) => {
+        const status = getMetricStatus(metric, r?.[metric]);
+        return status.outOfRange ? hexToRgba('#dc2626', 0.18) : hexToRgba(base, 0.18);
+      }),
       borderWidth: 2,
       borderRadius: 10,
       borderSkipped: false,
@@ -144,9 +155,9 @@ export default function ChartJsSlotBarChart({ title, description, data, metrics 
             const metric = metrics?.[ctx?.datasetIndex] || null;
             const v = ctx?.raw;
             if (!metric) return `${metricLabel}: ${v ?? '-'}`;
-            const out = isOutOfRange(metric, v);
+            const status = getMetricStatus(metric, v);
             const val = formatValue(metric, v);
-            return `${metricLabel}: ${val}${out ? ` (${t('status_out_of_range')})` : ''}`;
+            return `${metricLabel}: ${val} (${t(status.labelKey)})`;
           },
         },
       },

@@ -178,7 +178,7 @@ async function querySensorData(sensorDevices, location, startDate, endDate, limi
       temperature,
       moisture,
       ec,
-      "pH" as ph,
+      ph,
       nitrogen,
       phosphorus,
       potassium,
@@ -806,13 +806,13 @@ async function getCurrentSoilHealth(sensorDevices, location) {
       const deviceReadings = await Promise.all(
         sensorDevices.map(async (device) => {
           const where = buildWhere([device], location);
-          const sql = `
+          const baseSelect = `
             SELECT 
               time,
               temperature,
               moisture,
               ec,
-              "pH" as ph,
+              ph,
               nitrogen,
               phosphorus,
               potassium,
@@ -821,10 +821,20 @@ async function getCurrentSoilHealth(sensorDevices, location) {
             FROM "${MEASUREMENT}"
             ${where}
             ORDER BY time DESC
-            LIMIT 1
-          `;
-          
-          const rows = await sqlService.query(sql);
+            LIMIT 1`;
+
+          let rows;
+          try {
+            rows = await sqlService.query(baseSelect);
+          } catch (e) {
+            const msg = String(e?.message || '');
+            if (/(unknown\s+column|column\s+not\s+found|invalid\s+identifier|not\s+found|no\s+field\s+named)/i.test(msg)) {
+              const fallbackSelect = baseSelect.replace(/\bph\b/g, '"pH" as ph');
+              rows = await sqlService.query(fallbackSelect);
+            } else {
+              throw e;
+            }
+          }
           return rows && rows.length > 0 ? rows[0] : null;
         })
       );
@@ -905,13 +915,13 @@ async function getCurrentSoilHealth(sensorDevices, location) {
     } else {
       // Single device - use original logic
       const where = buildWhere(sensorDevices, location);
-      const sql = `
+      const baseSelect = `
         SELECT 
           time,
           temperature,
           moisture,
           ec,
-          "pH" as ph,
+          ph,
           nitrogen,
           phosphorus,
           potassium,
@@ -919,10 +929,20 @@ async function getCurrentSoilHealth(sensorDevices, location) {
         FROM "${MEASUREMENT}"
         ${where}
         ORDER BY time DESC
-        LIMIT 1
-      `;
-      
-      const rows = await sqlService.query(sql);
+        LIMIT 1`;
+
+      let rows;
+      try {
+        rows = await sqlService.query(baseSelect);
+      } catch (e) {
+        const msg = String(e?.message || '');
+        if (/(unknown\s+column|column\s+not\s+found|invalid\s+identifier|not\s+found|no\s+field\s+named)/i.test(msg)) {
+          const fallbackSelect = baseSelect.replace(/\bph\b/g, '"pH" as ph');
+          rows = await sqlService.query(fallbackSelect);
+        } else {
+          throw e;
+        }
+      }
       
       if (!rows || rows.length === 0) {
         return {
@@ -1388,10 +1408,26 @@ async function calculateCultivationHistory(sensorDevices, plantingDate, cropType
         }
       }
       
+      // Format dates in local 'YYYY-MM-DD' to avoid timezone shifting backward a day
+      const toLocalISODate = (d) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      let weekStartStr = toLocalISODate(weekStart);
+      const weekEndStr = toLocalISODate(queryEndDate);
+
+      // Ensure Week 1 starts exactly on plantingDate (string form) when provided
+      if (week === 1 && typeof plantingDate === 'string' && plantingDate.length >= 10) {
+        weekStartStr = plantingDate.slice(0, 10);
+      }
+
       cultivationHistory.push({
         week: week,
-        weekStart: weekStart.toISOString().split('T')[0],
-        weekEnd: queryEndDate.toISOString().split('T')[0],
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
         wateringStatus: wateringStatus,
         soilNutrientStatus: soilNutrientStatus,
         hasData: sensorData.length > 0

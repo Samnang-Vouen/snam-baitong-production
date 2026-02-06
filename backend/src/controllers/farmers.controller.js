@@ -1,4 +1,5 @@
 const db = require('../services/mysql');
+const telegram = require('../services/telegram.service');
 const sqlService = require('../services/sql');
 const sensorsService = require('../services/sensors.service');
 const { formatTimestampLocal } = require('../utils/format');
@@ -24,6 +25,27 @@ function normalizeDate(value) {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+}
+
+// Normalize phone numbers: convert Khmer/Arabic-Indic digits to ASCII, strip spaces/hyphens/plus/dots
+const EN_DIGITS = '0123456789';
+const KH_DIGITS = '០១២៣៤៥៦៧៨៩';
+const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+function toEnglishDigits(s) {
+  const str = String(s || '');
+  let out = '';
+  for (const ch of str) {
+    const khIdx = KH_DIGITS.indexOf(ch);
+    if (khIdx >= 0) { out += EN_DIGITS[khIdx]; continue; }
+    const arIdx = AR_DIGITS.indexOf(ch);
+    if (arIdx >= 0) { out += EN_DIGITS[arIdx]; continue; }
+    out += ch;
+  }
+  return out;
+}
+function normalizePhone(s) {
+  const ascii = toEnglishDigits(String(s || '').trim());
+  return ascii.replace(/[\s\-+\.]/g, '');
 }
 
 async function ensureSchema() {
@@ -159,6 +181,29 @@ async function ensureSchema() {
     INDEX idx_farmer_qr_token (token),
     INDEX idx_farmer_qr_farmer (farmer_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Create ministry feedbacks history table
+  await db.query(`CREATE TABLE IF NOT EXISTS farmer_feedbacks (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    farmer_id BIGINT NOT NULL,
+    content TEXT NOT NULL,
+    created_by_role VARCHAR(50) NOT NULL,
+    created_by_user_id INT NULL,
+    created_by_email VARCHAR(255) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ff_farmer (farmer_id),
+    INDEX idx_ff_created_at (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Ensure columns exist for submitter details (for legacy tables)
+  try { await db.query('ALTER TABLE farmer_feedbacks ADD COLUMN created_by_user_id INT NULL'); } catch (err) {
+    const msg = String(err && err.message || '');
+    if (!msg.includes('Duplicate column')) throw err;
+  }
+  try { await db.query('ALTER TABLE farmer_feedbacks ADD COLUMN created_by_email VARCHAR(255) NULL'); } catch (err) {
+    const msg = String(err && err.message || '');
+    if (!msg.includes('Duplicate column')) throw err;
+  }
 }
 
 async function createFarmer(req, res) {
@@ -206,7 +251,7 @@ async function createFarmer(req, res) {
       firstName,
       lastName,
       gender || null,
-      String(phoneNumber).trim(),
+      normalizePhone(phoneNumber),
       profileImageUrl || null,
       cropType,
       villageName,
@@ -218,7 +263,7 @@ async function createFarmer(req, res) {
       sensorDevicesStr,
       legacyFarmerName || null,
       legacyLocation || null,
-      String(phoneNumber).trim() || null,
+      normalizePhone(phoneNumber) || null,
       legacyDeviceId,
       profileImageUrl || null,
     ];
@@ -448,6 +493,13 @@ async function updateFarmer(req, res) {
     const { id } = req.params;
     const { firstName, lastName, gender, phoneNumber, profileImageUrl, cropType, villageName, districtName, provinceCity, plantingDate, harvestDate, ministryFeedback } = req.body || {};
 
+    // Fetch current farmer to detect phone number change
+    const rowsBefore = await db.query('SELECT * FROM farmers WHERE id = ? LIMIT 1', [id]);
+    if (!rowsBefore || rowsBefore.length === 0) {
+      return res.status(404).json({ success: false, error: 'Farmer not found' });
+    }
+    const prevFarmer = rowsBefore[0];
+
     // Build dynamic update query based on provided fields
     const updates = [];
     const params = [];
@@ -466,7 +518,7 @@ async function updateFarmer(req, res) {
     }
     if (phoneNumber !== undefined) {
       updates.push('phone_number = ?');
-      params.push(phoneNumber);
+      params.push(normalizePhone(phoneNumber));
     }
     if (profileImageUrl !== undefined) {
       updates.push('profile_image_url = ?');
@@ -501,8 +553,17 @@ async function updateFarmer(req, res) {
       params.push(req.body.qrExpirationDays);
     }
     if (req.body.sensorDevices !== undefined) {
-      updates.push('sensor_devices = ?');
-      params.push(req.body.sensorDevices || null);
+      // Do not overwrite sensor_devices with blank strings when editing unrelated fields.
+      // Allow explicit null to clear, otherwise only update when non-empty.
+      const sd = req.body.sensorDevices;
+      const trimmed = typeof sd === 'string' ? sd.trim() : sd;
+      if (trimmed === null) {
+        updates.push('sensor_devices = ?');
+        params.push(null);
+      } else if (typeof trimmed === 'string' ? trimmed.length > 0 : true) {
+        updates.push('sensor_devices = ?');
+        params.push(trimmed);
+      }
     }
     if (ministryFeedback !== undefined) {
       // Limit to 600 characters
@@ -511,6 +572,17 @@ async function updateFarmer(req, res) {
       params.push(feedback);
       // Set updated timestamp when feedback changes
       updates.push('ministry_feedback_updated_at = NOW()');
+      // Also append to feedback history when provided
+      if (feedback) {
+        try {
+          await db.query(
+            'INSERT INTO farmer_feedbacks (farmer_id, content, created_by_role) VALUES (?, ?, ?)',
+            [id, feedback, 'ministry']
+          );
+        } catch (histErr) {
+          // Non-blocking: continue even if history insert fails
+        }
+      }
     }
     
     if (updates.length === 0) {
@@ -525,6 +597,44 @@ async function updateFarmer(req, res) {
     
     if (!farmer) {
       return res.status(404).json({ success: false, error: 'Farmer not found' });
+    }
+
+    // If phone number was provided and changed, propagate to telegram bindings and notify
+    try {
+      if (phoneNumber !== undefined) {
+        const prevPhoneNorm = normalizePhone(prevFarmer.phone_number);
+        const newPhoneNorm = normalizePhone(phoneNumber);
+        if (prevPhoneNorm !== newPhoneNorm) {
+          // Update bound telegram_users phone_number for this farmer
+          await db.query('CREATE TABLE IF NOT EXISTS telegram_users (\n            id INT AUTO_INCREMENT PRIMARY KEY,\n            telegram_user_id BIGINT NOT NULL,\n            chat_id BIGINT NULL,\n            farmer_id BIGINT NULL,\n            phone_number VARCHAR(50) NULL,\n            verified_at TIMESTAMP NULL,\n            UNIQUE KEY uniq_telegram_user (telegram_user_id),\n            KEY idx_chat_id (chat_id),\n            KEY idx_farmer_id (farmer_id)\n          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;');
+          await db.query('UPDATE telegram_users SET phone_number = ? WHERE farmer_id = ?', [newPhoneNorm, id]);
+
+          // Notify all bound chats for this farmer
+          const binds = await db.query('SELECT chat_id FROM telegram_users WHERE farmer_id = ? AND chat_id IS NOT NULL', [id]);
+          if (binds && binds.length) {
+            const en = [
+              'ℹ️ Phone number updated',
+              `- New phone: ${newPhoneNorm}`,
+              'If this wasn\'t you, reply HELP'
+            ].join('\n');
+            const kh = [
+              'ℹ️ លេខទូរស័ព្ទត្រូវបានកែប្រែ',
+              `- លេខថ្មី: ${newPhoneNorm}`,
+              'បើមិនមែនអ្នក សូមបញ្ជាក់ដោយសរសេរ HELP'
+            ].join('\n');
+            const msg = `${en}\n\n${kh}`;
+            // Send to each chat; ignore failures
+            for (const b of binds) {
+              try {
+                await telegram.sendMessage({ chatId: Number(b.chat_id), text: msg, parseMode: 'Markdown' });
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (notifyErr) {
+      // Non-blocking: log and continue
+      console.warn('[updateFarmer] Telegram notify on phone change failed:', notifyErr && notifyErr.message);
     }
 
     res.json({ 
@@ -551,6 +661,74 @@ async function updateFarmer(req, res) {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to update farmer', message: err.message });
+  }
+}
+
+// Add new feedback entry (ministry only)
+async function addFarmerFeedback(req, res) {
+  try {
+    await ensureSchema();
+    const { id } = req.params;
+    const { text } = req.body || {};
+    if (!text || !String(text).trim()) {
+      return res.status(400).json({ success: false, error: 'Feedback text is required' });
+    }
+    const content = String(text).slice(0, 600);
+    const role = req.user?.role || 'ministry';
+    const userId = req.user?.id || null;
+    const email = req.user?.email || null;
+
+    // Insert into history
+    const result = await db.query(
+      'INSERT INTO farmer_feedbacks (farmer_id, content, created_by_role, created_by_user_id, created_by_email) VALUES (?, ?, ?, ?, ?)',
+      [id, content, role, userId, email]
+    );
+
+    // Update latest feedback snapshot on farmer record
+    await db.query(
+      'UPDATE farmers SET ministry_feedback = ?, ministry_feedback_updated_at = NOW() WHERE id = ?',
+      [content, id]
+    );
+
+    const [row] = await db.query('SELECT * FROM farmer_feedbacks WHERE id = ?', [result.insertId]);
+    return res.json({
+      success: true,
+      data: {
+        id: row.id,
+        farmerId: row.farmer_id,
+        content: row.content,
+        createdByRole: row.created_by_role,
+        createdByUserId: row.created_by_user_id,
+        createdByEmail: row.created_by_email,
+        createdAt: row.created_at,
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'Failed to add feedback', message: err.message });
+  }
+}
+
+// Get feedback history for a farmer (admin or ministry)
+async function getFarmerFeedbacks(req, res) {
+  try {
+    await ensureSchema();
+    const { id } = req.params;
+    const rows = await db.query(
+      'SELECT id, farmer_id, content, created_by_role, created_by_user_id, created_by_email, created_at FROM farmer_feedbacks WHERE farmer_id = ? ORDER BY created_at DESC',
+      [id]
+    );
+    const feedbacks = rows.map(r => ({
+      id: r.id,
+      farmerId: r.farmer_id,
+      content: r.content,
+      createdByRole: r.created_by_role,
+      createdByUserId: r.created_by_user_id,
+      createdByEmail: r.created_by_email,
+      createdAt: r.created_at,
+    }));
+    return res.json({ success: true, data: feedbacks });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'Failed to fetch feedbacks', message: err.message });
   }
 }
 
@@ -658,12 +836,14 @@ async function getFarmerWithSensors(req, res) {
             for (const row of sensorRows) {
               deviceData.push({
                 device: device,
-                farm: safeValue(row.farm),
+                farm_name: safeValue(row.farm_name),
                 location: safeValue(row.location) || `${farmer.village_name}, ${farmer.district_name}, ${farmer.province_city}`,
-                temperature: safeValue(row.temperature),
+                air_temp: safeValue(row.air_temp),
+                soil_temp: safeValue(row.soil_temp),
+                air_humidity: safeValue(row.air_humidity),
                 moisture: safeValue(row.moisture),
                 ec: safeValue(row.ec),
-                pH: safeValue(row.pH ?? row.ph),
+                ph: safeValue(row.pH ?? row.ph),
                 nitrogen: safeValue(row.nitrogen),
                 phosphorus: safeValue(row.phosphorus),
                 potassium: safeValue(row.potassium),
@@ -875,10 +1055,13 @@ async function scanFarmerQR(req, res) {
             sensorsData.push({
               device: device,
               location: safeValue(row.location) || farmer.location,
-              temperature: safeValue(row.temperature),
+              farm_name: safeValue(row.farm_name),
+              air_temp: safeValue(row.air_temp),
+              soil_temp: safeValue(row.soil_temp),
+              air_humidity: safeValue(row.air_humidity),
               moisture: safeValue(row.moisture),
               ec: safeValue(row.ec),
-              pH: safeValue(row.pH ?? row.ph),
+              ph: safeValue(row.pH ?? row.ph),
               nitrogen: safeValue(row.nitrogen),
               phosphorus: safeValue(row.phosphorus),
               potassium: safeValue(row.potassium),
@@ -996,7 +1179,7 @@ async function downloadSensorDataCSV(req, res) {
       device: record.device || '',
       farm: record.farm || '',
       location: record.location || '',
-      temperature: safeValue(record.temperature),
+      air_temp: safeValue(record.air_temp),
       moisture: safeValue(record.moisture),
       ec: safeValue(record.ec),
       pH: safeValue(record.pH ?? record.ph),
@@ -1053,4 +1236,4 @@ async function downloadSensorDataCSV(req, res) {
   }
 }
 
-module.exports = { createFarmer, getFarmers, getFarmer, updateFarmer, deleteFarmer, getFarmerWithSensors, generateFarmerQR, scanFarmerQR, markFeedbackViewed, downloadSensorDataCSV };
+module.exports = { createFarmer, getFarmers, getFarmer, updateFarmer, deleteFarmer, getFarmerWithSensors, generateFarmerQR, scanFarmerQR, markFeedbackViewed, downloadSensorDataCSV, addFarmerFeedback, getFarmerFeedbacks };

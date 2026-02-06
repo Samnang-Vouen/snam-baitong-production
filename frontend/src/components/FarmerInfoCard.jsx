@@ -50,7 +50,7 @@ export default function FarmerInfoCard({
             <div className="col-12 mb-4 text-center">
               <img 
                 src={farmer.profileImageUrl} 
-                alt={`${farmer.firstName} ${farmer.lastName}`}
+                alt={`${farmer.lastName} ${farmer.firstName}`}
                 className="rounded-circle img-thumbnail shadow"
                 style={{ 
                   width: 'clamp(100px, 25vw, 150px)', 
@@ -59,7 +59,7 @@ export default function FarmerInfoCard({
                   border: '4px solid #28a745'
                 }}
               />
-              {!isEditing && <h5 className="mt-3 mb-0" style={{ fontSize: 'clamp(0.9rem, 3vw, 1.25rem)' }}>{farmer.firstName} {farmer.lastName}</h5>}
+              {!isEditing && <h5 className="mt-3 mb-0" style={{ fontSize: 'clamp(0.9rem, 3vw, 1.25rem)' }}>{farmer.lastName} {farmer.firstName} </h5>}
             </div>
           )}
           

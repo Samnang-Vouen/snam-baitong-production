@@ -179,7 +179,17 @@ export const farmerService = {
     }
     keysToDelete.forEach(key => requestCache.delete(key));
     
-    const response = await httpClient.put(`/farmers/${id}`, data);
+    // Avoid unintentionally clearing sensor_devices: strip empty string fields
+    const payload = { ...data };
+    if (Object.prototype.hasOwnProperty.call(payload, 'sensorDevices')) {
+      const v = payload.sensorDevices;
+      if (typeof v === 'string' && v.trim() === '') {
+        // Remove the key so backend won't treat it as an update
+        delete payload.sensorDevices;
+      }
+    }
+
+    const response = await httpClient.put(`/farmers/${id}`, payload);
     return response.data.farmer;
   },
 
@@ -192,6 +202,30 @@ export const farmerService = {
   // Mark feedback as viewed
   markFeedbackViewed: async (id) => {
     await httpClient.post(`/farmers/${id}/mark-viewed`);
+  },
+
+  // Get feedback history (latest-first)
+  getFarmerFeedbacks: async (id) => {
+    const key = createCacheKey(`/farmers/${id}/feedbacks`, null);
+    return deduplicateRequest(key, async () => {
+      const response = await httpClient.get(`/farmers/${id}/feedbacks`);
+      return response.data.data;
+    });
+  },
+
+  // Add new feedback entry (ministry)
+  addFarmerFeedback: async (id, { text }) => {
+    // Clear cache related to feedbacks and farmer
+    const keysToDelete = [];
+    for (const key of requestCache.keys()) {
+      if (key.includes(`/farmers/${id}/feedbacks`) || key.includes(`/farmers/${id}`)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach(key => requestCache.delete(key));
+
+    const response = await httpClient.post(`/farmers/${id}/feedbacks`, { text });
+    return response.data.data;
   },
 
   // Clear cache (useful for forcing refresh)
