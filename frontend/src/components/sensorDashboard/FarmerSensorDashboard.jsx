@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { farmerService } from '../../services/farmerService';
 import KpiCard from './KpiCard';
 import ChartJsSlotBarChart from './ChartJsSlotBarChart';
@@ -24,6 +24,21 @@ function hasAnyFiniteMetric(rows, keys) {
     for (const k of metrics) {
       const v = toFiniteNumberOrNaN(r?.[k]);
       if (Number.isFinite(v)) return true;
+    }
+  }
+  return false;
+}
+
+// Consider a metric "supported" only if there is at least one non-zero
+// numeric value in the sampled slot data. This prevents showing misleading
+// KPI cards with 0.00 when the device doesn't report that metric.
+function hasAnyNonZeroMetric(rows, keys) {
+  if (!Array.isArray(rows) || !rows.length) return false;
+  const metrics = Array.isArray(keys) ? keys : [];
+  for (const r of rows) {
+    for (const k of metrics) {
+      const v = toFiniteNumberOrNaN(r?.[k]);
+      if (Number.isFinite(v) && v !== 0) return true;
     }
   }
   return false;
@@ -118,6 +133,8 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
   const [error, setError] = useState('');
 
   const [snapshotExpanded, setSnapshotExpanded] = useState(true);
+  const [snapshotIsStuck, setSnapshotIsStuck] = useState(false);
+  const snapshotCardRef = useRef(null);
 
   const [range, setRange] = useState('latest');
 
@@ -144,21 +161,28 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
   }, []);
 
   useEffect(() => {
-    // On small screens, collapse the snapshot by default so it doesn't block the content below.
-    const mq = window.matchMedia?.('(max-width: 576px)');
-    if (!mq) return;
+    // Track when the snapshot header becomes stuck (position: sticky at the top).
+    const checkSticky = () => {
+      const el = snapshotCardRef.current;
+      if (!el) return;
+      const rectTop = el.getBoundingClientRect().top;
+      const cssVar = getComputedStyle(document.documentElement).getPropertyValue('--app-navbar-height') || '0';
+      const navH = parseInt(cssVar, 10) || 0;
+      // Consider it stuck when the card touches the navbar offset.
+      const stuck = rectTop <= navH + 4;
+      setSnapshotIsStuck(stuck);
+    };
 
-    const apply = () => setSnapshotExpanded(!mq.matches);
-    apply();
-
-    if (mq.addEventListener) {
-      mq.addEventListener('change', apply);
-      return () => mq.removeEventListener('change', apply);
-    }
-
-    mq.addListener?.(apply);
-    return () => mq.removeListener?.(apply);
+    checkSticky();
+    window.addEventListener('scroll', checkSticky, { passive: true });
+    window.addEventListener('resize', checkSticky);
+    return () => {
+      window.removeEventListener('scroll', checkSticky);
+      window.removeEventListener('resize', checkSticky);
+    };
   }, []);
+
+  // Removed: do not auto-collapse/expand based on screen size.
 
   useEffect(() => {
     // When allowedDevices arrive, select a default device.
@@ -223,8 +247,10 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
   const kpiPoint = latest;
 
   const isNoResultLatest = range === 'latest' && !loading && !error && !latest;
-  const forceSnapshotExpanded = !!error || isNoResultLatest;
-  const isSnapshotExpanded = forceSnapshotExpanded ? true : snapshotExpanded;
+  // Do not force expand/collapse; only change via user interaction.
+  const isSnapshotExpanded = snapshotExpanded;
+
+  // Removed: no auto-collapse when sticky; user controls the toggle only.
 
   const rangeLabel = useMemo(() => {
     if (range === 'latest') return t('latest');
@@ -271,40 +297,82 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
       return { min, max, avg: sum / vals.length, n: vals.length };
     };
     return {
-      temperature: calc('temperature'),
+      air_temp: calc('air_temp'),
+      soil_temp: calc('soil_temp'),
+      air_humidity: calc('air_humidity'),
       moisture: calc('moisture'),
       ec: calc('ec'),
       ph: calc('ph'),
-      n: calc('n'),
-      p: calc('p'),
-      k: calc('k'),
+      nitrogen: calc('nitrogen'),
+      phosphorus: calc('phosphorus'),
+      potassium: calc('potassium'),
+      salinity: calc('salinity'),
     };
   }, [slots]);
 
   const summaryItems = useMemo(
     () => [
-      { key: 'temperature', label: t('temperature'), icon: 'bi bi-thermometer-half', unit: '°C' },
+      { key: 'air_temp', label: t('air_temp'), icon: 'bi bi-thermometer-half', unit: '°C' },
+      { key: 'soil_temp', label: t('soil_temp'), icon: 'bi bi-thermometer-half', unit: '°C' },
+      { key: 'air_humidity', label: t('air_humidity'), icon: 'bi bi-droplet', unit: '%' },
       { key: 'moisture', label: t('moisture'), icon: 'bi bi-droplet-half', unit: '%' },
-      { key: 'ec', label: t('ec'), icon: 'bi bi-lightning-charge', unit: 'µS/cm' },
+      { key: 'ec', label: t('ec'), icon: 'bi bi-lightning-charge', unit: 'dS/m' },
       { key: 'ph', label: t('ph'), icon: 'bi bi-speedometer2', unit: '' },
-      { key: 'n', label: `${t('nitrogen')} (N)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
-      { key: 'p', label: `${t('phosphorus')} (P)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
-      { key: 'k', label: `${t('potassium')} (K)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
+      { key: 'nitrogen', label: `${t('nitrogen')} (N)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
+      { key: 'phosphorus', label: `${t('phosphorus')} (P)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
+      { key: 'potassium', label: `${t('potassium')} (K)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
+      { key: 'salinity', label: t('salinity'), icon: 'bi bi-water', unit: 'ppt' },
     ].filter((i) => !!stats?.[i.key]),
     [stats, t]
   );
 
   const showSummary = summaryItems.length > 0;
-  const showEnvChart = useMemo(() => hasAnyFiniteMetric(slots, ['temperature', 'moisture', 'ec', 'ph']), [slots]);
-  const showNutrientChart = useMemo(() => hasAnyFiniteMetric(slots, ['n', 'p', 'k']), [slots]);
+  const showEnvChart = useMemo(
+    () => hasAnyNonZeroMetric(slots, ['air_temp', 'soil_temp', 'air_humidity', 'moisture', 'ec', 'ph']),
+    [slots]
+  );
+  const showNutrientChart = useMemo(
+    () => hasAnyNonZeroMetric(slots, ['nitrogen', 'phosphorus', 'potassium']),
+    [slots]
+  );
   const showCharts = showEnvChart || showNutrientChart;
   // Raw data should follow the selected time filter.
   // Prefer API-provided raw rows; fall back to slots if raw isn't requested.
   const tableRows = useMemo(() => {
     const source = rawRowsFromApi.length ? rawRowsFromApi : slots;
-    return filterRowsWithAnyMetric(source, ['temperature', 'moisture', 'ec', 'ph', 'n', 'p', 'k']);
+    return filterRowsWithAnyMetric(source, [
+      'air_temp',
+      'soil_temp',
+      'air_humidity',
+      'moisture',
+      'ec',
+      'ph',
+      'nitrogen',
+      'phosphorus',
+      'potassium',
+      'salinity',
+    ]);
   }, [rawRowsFromApi, slots]);
   const hasRawData = tableRows.length > 0;
+
+  // Determine if the current selected range has no data points for any metric.
+  const hasAnyMetricInSlots = useMemo(
+    () =>
+      hasAnyFiniteMetric(slots, [
+        'air_temp',
+        'soil_temp',
+        'air_humidity',
+        'moisture',
+        'ec',
+        'ph',
+        'nitrogen',
+        'phosphorus',
+        'potassium',
+        'salinity',
+      ]),
+    [slots]
+  );
+  const isNoDataRange = range !== 'latest' && !loading && !error && !hasAnyMetricInSlots;
 
   const handleDownloadCSV = async () => {
     if (!device) return;
@@ -330,6 +398,7 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
         className={`card shadow-sm sensor-snapshot-sticky sensor-snapshot ${
           isSnapshotExpanded ? 'sensor-snapshot--open' : 'sensor-snapshot--collapsed'
         }`}
+        ref={snapshotCardRef}
       >
         <div className="card-header bg-info text-white">
           <div className="d-flex align-items-center justify-content-between gap-2 flex-wrap">
@@ -352,7 +421,6 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
               onClick={() => setSnapshotExpanded((v) => !v)}
               aria-expanded={isSnapshotExpanded}
               aria-label={isSnapshotExpanded ? t('hide_filters') : t('show_filters')}
-              disabled={forceSnapshotExpanded}
             >
               <i className={`bi ${isSnapshotExpanded ? 'bi-chevron-up' : 'bi-chevron-down'} me-1`}></i>
               {isSnapshotExpanded ? t('hide_filters') : t('show_filters')}
@@ -361,6 +429,18 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
         </div>
 
         <div className="card-body">
+          {snapshotIsStuck ? (
+            <button
+              type="button"
+              className="btn btn-light btn-sm sensor-snapshot-floating-toggle"
+              onClick={() => setSnapshotExpanded((v) => !v)}
+              aria-expanded={isSnapshotExpanded}
+              aria-label={isSnapshotExpanded ? t('hide_filters') : t('show_filters')}
+            >
+              <i className={`bi ${isSnapshotExpanded ? 'bi-chevron-up' : 'bi-chevron-down'} me-1`}></i>
+              {isSnapshotExpanded ? t('hide_filters') : t('show_filters')}
+            </button>
+          ) : null}
           <div className="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-2 sensor-dashboard-toolbar">
             <div className="sensor-dashboard-filter">
               <TimeRangeFilter value={range} onChange={setRange} />
@@ -406,7 +486,7 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
             </div>
           )}
 
-          {isNoResultLatest ? (
+          {isNoResultLatest || isNoDataRange ? (
             <div className="alert alert-info mb-0" role="status">
               {t('no_result')}
             </div>
@@ -462,7 +542,7 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
         </div>
       </div>
 
-      {isNoResultLatest ? null : (
+        {isNoResultLatest ? null : (
         <>
           {/* KPI Section */}
           <div className="card shadow-sm">
@@ -477,32 +557,29 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
             </div>
             <div className="card-body">
               <div className="row g-3">
-                <div className="col-12 col-sm-6 col-lg-3">
-                  <KpiCard
-                    title={t('temperature')}
-                    metric="temperature"
-                    value={kpiPoint?.temperature}
-                    subtitle={showHistory ? null : kpiSubtitle}
-                  />
-                </div>
-                <div className="col-12 col-sm-6 col-lg-3">
-                  <KpiCard title={t('moisture')} metric="moisture" value={kpiPoint?.moisture} subtitle={showHistory ? null : kpiSubtitle} />
-                </div>
-                <div className="col-12 col-sm-6 col-lg-3">
-                  <KpiCard title={t('ec')} metric="ec" value={kpiPoint?.ec} subtitle={showHistory ? null : kpiSubtitle} />
-                </div>
-                <div className="col-12 col-sm-6 col-lg-3">
-                  <KpiCard title={t('ph')} metric="ph" value={kpiPoint?.ph} subtitle={showHistory ? null : kpiSubtitle} />
-                </div>
-                <div className="col-12 col-sm-6 col-lg-3">
-                  <KpiCard title={`${t('nitrogen')} (N)`} metric="n" value={kpiPoint?.n} subtitle={showHistory ? null : kpiSubtitle} />
-                </div>
-                <div className="col-12 col-sm-6 col-lg-3">
-                  <KpiCard title={`${t('phosphorus')} (P)`} metric="p" value={kpiPoint?.p} subtitle={showHistory ? null : kpiSubtitle} />
-                </div>
-                <div className="col-12 col-sm-6 col-lg-3">
-                  <KpiCard title={`${t('potassium')} (K)`} metric="k" value={kpiPoint?.k} subtitle={showHistory ? null : kpiSubtitle} />
-                </div>
+                {[
+                  { key: 'air_temp', title: t('air_temp') },
+                  { key: 'soil_temp', title: t('soil_temp') },
+                  { key: 'air_humidity', title: t('air_humidity') },
+                  { key: 'moisture', title: t('moisture') },
+                  { key: 'ec', title: t('ec') },
+                  { key: 'ph', title: t('ph') },
+                  { key: 'nitrogen', title: `${t('nitrogen')} (N)` },
+                  { key: 'phosphorus', title: `${t('phosphorus')} (P)` },
+                  { key: 'potassium', title: `${t('potassium')} (K)` },
+                  { key: 'salinity', title: t('salinity') },
+                ]
+                  .filter((i) => hasAnyNonZeroMetric(slots, [i.key]))
+                  .map((i) => (
+                    <div key={i.key} className="col-12 col-sm-6 col-lg-3">
+                      <KpiCard
+                        title={i.title}
+                        metric={i.key}
+                        value={kpiPoint?.[i.key]}
+                        subtitle={showHistory ? null : kpiSubtitle}
+                      />
+                    </div>
+                  ))}
               </div>
             </div>
           </div>
@@ -532,14 +609,14 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
               {showEnvChart ? (
                 <div className="col-12 col-lg-6">
                   <ChartJsSlotBarChart
-                    title={`${t('temperature')} / ${t('moisture')} / ${t('ec')} / ${t('ph')}`}
+                    title={`${t('air_temp')} / ${t('soil_temp')} / ${t('air_humidity')} / ${t('moisture')} / ${t('ec')} / ${t('ph')}`}
                     description={
                       range === 'latest'
                         ? t('chart_latest_snapshot')
                         : t('history_grouped_every', { range: historyLabel, group: groupingLabel || t('fixed_interval') })
                     }
                     data={slots}
-                    metrics={['temperature', 'moisture', 'ec', 'ph']}
+                    metrics={['air_temp', 'soil_temp', 'air_humidity', 'moisture', 'ec', 'ph']}
                   />
                 </div>
               ) : null}
@@ -553,7 +630,7 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
                         : t('history_grouped_every', { range: historyLabel, group: groupingLabel || t('fixed_interval') })
                     }
                     data={slots}
-                    metrics={['n', 'p', 'k']}
+                    metrics={['nitrogen', 'phosphorus', 'potassium']}
                   />
                 </div>
               ) : null}

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createFarmer, getFarmers, getFarmer, updateFarmer, deleteFarmer, getFarmerWithSensors, generateFarmerQR, scanFarmerQR, markFeedbackViewed, downloadSensorDataCSV } = require('../controllers/farmers.controller');
+const { createFarmer, getFarmers, getFarmer, updateFarmer, deleteFarmer, getFarmerWithSensors, generateFarmerQR, scanFarmerQR, markFeedbackViewed, downloadSensorDataCSV, addFarmerFeedback, getFarmerFeedbacks } = require('../controllers/farmers.controller');
 const { getFarmerSensorDashboard } = require('../controllers/sensorDashboard.controller');
 const sensorsController = require('../controllers/sensors.controller');
 const { authenticate } = require('../middlewares/auth.middleware');
@@ -46,6 +46,12 @@ router.post('/:id/qr', generateFarmerQR);
 
 // POST /api/farmers/:id/mark-viewed - Mark ministry feedback as viewed by admin
 router.post('/:id/mark-viewed', authorize([ROLES.ADMIN]), markFeedbackViewed);
+
+// Feedback history endpoints
+// GET /api/farmers/:id/feedbacks - List feedback entries (admin or ministry)
+router.get('/:id/feedbacks', authorize([ROLES.ADMIN, ROLES.MINISTRY]), getFarmerFeedbacks);
+// POST /api/farmers/:id/feedbacks - Add feedback (ministry only)
+router.post('/:id/feedbacks', authorize([ROLES.MINISTRY]), addFarmerFeedback);
 
 // GET /api/farmers/:id - Get specific farmer
 router.get('/:id', getFarmer);

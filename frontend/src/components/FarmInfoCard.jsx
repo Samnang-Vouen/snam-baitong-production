@@ -22,7 +22,7 @@ export default function FarmInfoCard({ sensors, selectedDevice }) {
         <div className="row" style={{ maxWidth: '800px' }}>
           <div className="col-md-6 mb-3">
             <strong><i className="bi bi-building text-info me-2"></i>{t('farm_name') || 'Farm Name'}:</strong>
-            <p className="mb-0">{deviceSensor?.farm || '-'}</p>
+            <p className="mb-0">{deviceSensor?.farm_name || deviceSensor?.farm || '-'}</p>
           </div>
           <div className="col-md-6 mb-3">
             <strong><i className="bi bi-geo-alt-fill text-info me-2"></i>{t('farm_location') || 'Farm Location'}:</strong>

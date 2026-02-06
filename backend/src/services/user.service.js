@@ -30,7 +30,7 @@ async function initSchema() {
       try { await conn.query(sql); } catch (err) {
         const msg = String(err && err.message || '');
         // Ignore duplicate/exists errors
-        if (msg.includes('Duplicate column') || msg.includes('already exists') || msg.includes('checks for existence')) return;
+        if (msg.includes('Duplicate column') || msg.includes('already exists') || msg.includes('checks for existence') || msg.includes('Duplicate key name')) return;
         // Ignore syntax issues on old MySQL when IF NOT EXISTS isn't supported
         if (msg.includes('IF NOT EXISTS')) return;
         // Ignore enum alter failures (legacy variants)
@@ -50,7 +50,15 @@ async function initSchema() {
     await safeExec(`ALTER TABLE users ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`);
 
     // Ensure unique index on email
-    await safeExec(`CREATE UNIQUE INDEX idx_users_email ON users(email)`);
+    const [idxRows] = await conn.query(
+      `SELECT 1 FROM information_schema.statistics 
+       WHERE table_schema = DATABASE() AND table_name = 'users' AND index_name = 'idx_users_email' 
+       LIMIT 1`
+    );
+    const hasEmailIdx = Array.isArray(idxRows) && idxRows.length > 0;
+    if (!hasEmailIdx) {
+      await safeExec(`CREATE UNIQUE INDEX idx_users_email ON users(email)`);
+    }
 
     // JWT blacklist table
     await conn.query(`

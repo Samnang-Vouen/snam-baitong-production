@@ -64,7 +64,9 @@ export default function FarmerDetail({ farmerId = null, initialFarmer = null, on
     error: feedbackError,
     showSuccessModal: feedbackSuccessModal,
     setShowSuccessModal: setFeedbackSuccessModal,
-    handleFeedbackSave
+    handleFeedbackSave,
+    feedbacks,
+    feedbacksLoading,
   } = useFeedback(farmer, id);
 
   // Combine all errors
@@ -204,6 +206,8 @@ export default function FarmerDetail({ farmerId = null, initialFarmer = null, on
               onFeedbackChange={setMinistryFeedback}
               feedbackSaving={feedbackSaving}
               onFeedbackSave={handleFeedbackSave}
+              feedbacks={feedbacks}
+              feedbacksLoading={feedbacksLoading}
             />
           )}
 
@@ -216,6 +220,8 @@ export default function FarmerDetail({ farmerId = null, initialFarmer = null, on
               onFeedbackChange={setMinistryFeedback}
               feedbackSaving={feedbackSaving}
               onFeedbackSave={handleFeedbackSave}
+              feedbacks={feedbacks}
+              feedbacksLoading={feedbacksLoading}
             />
           )}
         </div>

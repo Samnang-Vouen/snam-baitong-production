@@ -158,12 +158,32 @@ async function getNearestPointAtOrBefore(deviceEsc, timeIso) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
+async function findNearestNonNullMetric(deviceEsc, metric, latestIso, lookbackDays = 30) {
+  if (!metric || !latestIso) return null;
+  const latestDate = new Date(latestIso);
+  const startMs = latestDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
+  const startIso = new Date(startMs).toISOString();
+  // Only search within a bounded window for performance and relevance.
+  const sql = `SELECT ${metric}, time FROM "${MEASUREMENT}"
+    WHERE device = '${deviceEsc}'
+      AND time >= '${escapeSqlString(startIso)}'
+      AND time <= '${escapeSqlString(latestIso)}'
+      AND ${metric} IS NOT NULL
+    ORDER BY time DESC
+    LIMIT 1`;
+  const rows = await sqlService.query(sql);
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const row = rows[0];
+  const v = row?.[metric];
+  const n = Number(v);
+  return Number.isFinite(n) ? { value: n, time: row?.time ? new Date(row.time).toISOString() : null } : null;
+}
+
 async function getPointsInWindow(deviceEsc, startIso, endIso, maxRows) {
   const safeLimit = Number.isFinite(Number(maxRows)) ? Math.max(1, Math.min(50000, Number(maxRows))) : 15000;
 
   const normalizePhKeys = (row) => {
     if (!row || typeof row !== 'object') return row;
-    // InfluxDB 3 SQL client may normalize aliases/casing. Normalize so both `pH` and `ph` exist.
     const v = row.pH ?? row.ph ?? row.PH ?? row.Ph;
     if (v !== undefined) {
       if (row.pH === undefined) row.pH = v;
@@ -172,66 +192,22 @@ async function getPointsInWindow(deviceEsc, startIso, endIso, maxRows) {
     return row;
   };
 
-  // Select only fields we use (faster + avoids schema errors for non-existent columns).
-  // Note: some deployments store pH as "pH" (case-sensitive), others as ph.
-  // We try "pH" first and fall back to ph, always aliasing to pH.
-  const baseSql = ({ phExpr }) => `SELECT
-      time,
-      temperature,
-      moisture,
-      ec,
-      ${phExpr} as pH,
-      nitrogen,
-      phosphorus,
-      potassium,
-      salinity
-    FROM "${MEASUREMENT}"
+  const sql = `SELECT * FROM "${MEASUREMENT}"
     WHERE device = '${deviceEsc}'
       AND time >= '${escapeSqlString(startIso)}'
       AND time <= '${escapeSqlString(endIso)}'
     ORDER BY time DESC
     LIMIT ${safeLimit}`;
 
-  const hasAnyPh = (rows) =>
-    Array.isArray(rows) &&
-    rows.some((r) => {
-      const v = r?.pH ?? r?.ph ?? r?.PH ?? r?.Ph;
-      if (v === null || v === undefined || v === '') return false;
-      const n = Number(v);
-      return Number.isFinite(n);
-    });
-
-  try {
-    const rows = await sqlService.query(baseSql({ phExpr: '"pH"' }));
-    const safeRows = (Array.isArray(rows) ? rows : []).map(normalizePhKeys);
-
-    // Some Influx deployments may not error on missing columns and just return NULL.
-    // If we have rows but no pH values, try again using `ph`.
-    if (safeRows.length > 0 && !hasAnyPh(safeRows)) {
-      try {
-        const rows2 = await sqlService.query(baseSql({ phExpr: 'ph' }));
-        const safeRows2 = (Array.isArray(rows2) ? rows2 : []).map(normalizePhKeys);
-        if (safeRows2.length > 0 && hasAnyPh(safeRows2)) return safeRows2;
-      } catch {
-        // ignore and fall back to the original result
-      }
-    }
-
-    return safeRows;
-  } catch (e) {
-    const msg = String(e?.message || '');
-    // If the column doesn't exist, retry using ph.
-    if (/\bpH\b/i.test(msg) && /(unknown\s+column|column\s+not\s+found|invalid\s+identifier|not\s+found)/i.test(msg)) {
-      const rows = await sqlService.query(baseSql({ phExpr: 'ph' }));
-      return (Array.isArray(rows) ? rows : []).map(normalizePhKeys);
-    }
-    throw e;
-  }
+  const rows = await sqlService.query(sql);
+  return (Array.isArray(rows) ? rows : []).map(normalizePhKeys);
 }
 
 async function getAverageInWindow(deviceEsc, startIso, endIso) {
   const baseSql = ({ phExpr }) => `SELECT
-      AVG(temperature) as temperature,
+      AVG(air_temp) as air_temp,
+      AVG(soil_temp) as soil_temp,
+      AVG(air_humidity) as air_humidity,
       AVG(moisture) as moisture,
       AVG(ec) as ec,
       AVG(${phExpr}) as pH,
@@ -255,27 +231,20 @@ async function getAverageInWindow(deviceEsc, startIso, endIso) {
   };
 
   try {
-    const rows = await sqlService.query(baseSql({ phExpr: '"pH"' }));
+    // Prefer lowercase 'ph' first (matches schema: soil_sensor.ph)
+    const rows = await sqlService.query(baseSql({ phExpr: 'ph' }));
     const first = Array.isArray(rows) && rows.length ? normalizePhKeys(rows[0]) : null;
-    const v = first?.pH ?? first?.ph;
-    const n = v === null || v === undefined || v === '' ? Number.NaN : Number(v);
-
-    // If AVG("pH") produced no value but other fields exist, try AVG(ph).
-    if (!Number.isFinite(n) && first) {
-      try {
-        const rows2 = await sqlService.query(baseSql({ phExpr: 'ph' }));
-        return Array.isArray(rows2) && rows2.length ? normalizePhKeys(rows2[0]) : first;
-      } catch {
-        return first;
-      }
-    }
-
     return first;
   } catch (e) {
     const msg = String(e?.message || '');
-    if (/\bpH\b/i.test(msg) && /(unknown\s+column|column\s+not\s+found|invalid\s+identifier|not\s+found)/i.test(msg)) {
-      const rows = await sqlService.query(baseSql({ phExpr: 'ph' }));
-      return Array.isArray(rows) && rows.length ? normalizePhKeys(rows[0]) : null;
+    // If 'ph' is not found, retry with quoted uppercase "pH"
+    if (/\bph\b/i.test(msg) && /(unknown\s+column|column\s+not\s+found|invalid\s+identifier|not\s+found|no\s+field\s+named)/i.test(msg)) {
+      try {
+        const rows = await sqlService.query(baseSql({ phExpr: '"pH"' }));
+        return Array.isArray(rows) && rows.length ? normalizePhKeys(rows[0]) : null;
+      } catch (_) {
+        // Fall through to throw original error if retry also fails
+      }
     }
     throw e;
   }
@@ -287,16 +256,17 @@ function mapRowToPoint({ row, device, time }) {
     time,
     timestampLocal: formatTimestampLocal(time, { includeTZName: true }),
     device,
-    farm: row?.farm ?? null,
-    temperature: safeValue(row?.temperature),
-    // UI uses moisture; keep humidity as backward-compatible alias.
-    moisture: safeValue(row?.moisture ?? row?.humidity),
-    humidity: safeValue(row?.humidity ?? row?.moisture),
+    farm_name: row?.farm_name ?? null,
+    air_temp: safeValue(row?.air_temp),
+    soil_temp: safeValue(row?.soil_temp),
+    air_humidity: safeValue(row?.air_humidity),
+    moisture: safeValue(row?.moisture),
     ec: safeValue(row?.ec),
     ph: safeValue(row?.pH ?? row?.ph),
-    n: safeValue(row?.nitrogen ?? row?.n),
-    p: safeValue(row?.phosphorus ?? row?.p),
-    k: safeValue(row?.potassium ?? row?.k),
+    nitrogen: safeValue(row?.nitrogen),
+    phosphorus: safeValue(row?.phosphorus),
+    potassium: safeValue(row?.potassium),
+    salinity: safeValue(row?.salinity),
   };
 }
 
@@ -306,15 +276,17 @@ function mapAggRowToPoint({ aggRow, device, time, fallbackFarm }) {
     time,
     timestampLocal: formatTimestampLocal(time, { includeTZName: true }),
     device,
-    farm: fallbackFarm ?? null,
-    temperature: safeValue(aggRow?.temperature),
-    moisture: safeValue(aggRow?.moisture ?? aggRow?.humidity),
-    humidity: safeValue(aggRow?.humidity ?? aggRow?.moisture),
+    farm_name: fallbackFarm ?? null,
+    air_temp: safeValue(aggRow?.air_temp),
+    soil_temp: safeValue(aggRow?.soil_temp),
+    air_humidity: safeValue(aggRow?.air_humidity),
+    moisture: safeValue(aggRow?.moisture),
     ec: safeValue(aggRow?.ec),
     ph: safeValue(aggRow?.pH ?? aggRow?.ph),
-    n: safeValue(aggRow?.nitrogen ?? aggRow?.n),
-    p: safeValue(aggRow?.phosphorus ?? aggRow?.p),
-    k: safeValue(aggRow?.potassium ?? aggRow?.k),
+    nitrogen: safeValue(aggRow?.nitrogen),
+    phosphorus: safeValue(aggRow?.phosphorus),
+    potassium: safeValue(aggRow?.potassium),
+    salinity: safeValue(aggRow?.salinity),
   };
 }
 
@@ -377,7 +349,9 @@ function aggregateRowsIntoWindows({ rowsDesc, windows, endMs }) {
   const buckets = windows.map((w) => ({
     window: w,
     sums: {
-      temperature: 0,
+      air_temp: 0,
+      soil_temp: 0,
+      air_humidity: 0,
       moisture: 0,
       ec: 0,
       pH: 0,
@@ -387,7 +361,9 @@ function aggregateRowsIntoWindows({ rowsDesc, windows, endMs }) {
       salinity: 0,
     },
     counts: {
-      temperature: 0,
+      air_temp: 0,
+      soil_temp: 0,
+      air_humidity: 0,
       moisture: 0,
       ec: 0,
       pH: 0,
@@ -398,7 +374,7 @@ function aggregateRowsIntoWindows({ rowsDesc, windows, endMs }) {
     },
   }));
 
-  const metrics = ['temperature', 'moisture', 'ec', 'pH', 'nitrogen', 'phosphorus', 'potassium', 'salinity'];
+  const metrics = ['air_temp', 'soil_temp', 'air_humidity', 'moisture', 'ec', 'pH', 'nitrogen', 'phosphorus', 'potassium', 'salinity'];
 
   const lastIdx = buckets.length - 1;
 
@@ -510,15 +486,17 @@ async function getFarmerSensorDashboard(req, res) {
           time: latestRow?.time ? new Date(latestRow.time).toISOString() : null,
           timestampLocal: formatTimestampLocal(latestRow?.time ?? null, { includeTZName: true }),
           device,
-          farm: latestRow?.farm ?? null,
-          temperature: safeValue(latestRow?.temperature),
-          moisture: safeValue(latestRow?.moisture ?? latestRow?.humidity),
-          humidity: safeValue(latestRow?.humidity ?? latestRow?.moisture),
+          farm_name: latestRow?.farm_name ?? null,
+          air_temp: safeValue(latestRow?.air_temp),
+          soil_temp: safeValue(latestRow?.soil_temp),
+          air_humidity: safeValue(latestRow?.air_humidity),
+          moisture: safeValue(latestRow?.moisture),
           ec: safeValue(latestRow?.ec),
           ph: safeValue(latestRow?.pH ?? latestRow?.ph),
-          n: safeValue(latestRow?.nitrogen ?? latestRow?.n),
-          p: safeValue(latestRow?.phosphorus ?? latestRow?.p),
-          k: safeValue(latestRow?.potassium ?? latestRow?.k),
+          nitrogen: safeValue(latestRow?.nitrogen),
+          phosphorus: safeValue(latestRow?.phosphorus),
+          potassium: safeValue(latestRow?.potassium),
+          salinity: safeValue(latestRow?.salinity),
         }
       : null;
 
@@ -587,7 +565,24 @@ async function getFarmerSensorDashboard(req, res) {
           if (latestRow?.time) {
             const time = new Date(latestRow.time).toISOString();
             const point = mapRowToPoint({ row: latestRow, device, time });
-            slots.push({ label: 'Latest', time, ...(point || {}), device, farm: latestRow?.farm ?? null });
+
+            // Backfill soil nutrients (N/P/K) from nearest previous non-null values if missing in the latest row.
+            const npk = ['nitrogen', 'phosphorus', 'potassium'];
+            for (const m of npk) {
+              const val = point?.[m];
+              const isMissing = val === null || val === undefined || !Number.isFinite(Number(val));
+              if (isMissing) {
+                try {
+                  const nearest = await findNearestNonNullMetric(deviceEsc, m, time, 30);
+                  if (nearest && nearest.value !== null && nearest.value !== undefined) {
+                    point[m] = safeValue(nearest.value);
+                  }
+                } catch (_) {
+                  // Ignore fallback errors; keep missing values as-is.
+                }
+              }
+            }
+            slots.push({ label: 'Latest', time, ...(point || {}), device, farm_name: latestRow?.farm_name ?? null });
 
             if (includeRaw) {
               raw = [point].filter(Boolean);
@@ -605,8 +600,8 @@ async function getFarmerSensorDashboard(req, res) {
           const bucketed = aggregateRowsIntoWindows({ rowsDesc, windows, endMs });
 
           for (const b of bucketed) {
-            const point = mapAggRowToPoint({ aggRow: b.avg, device, time: b.time, fallbackFarm: latestRow?.farm ?? null });
-            slots.push({ label: b.label, time: b.time, ...(point || {}), device, farm: latestRow?.farm ?? null });
+            const point = mapAggRowToPoint({ aggRow: b.avg, device, time: b.time, fallbackFarm: latestRow?.farm_name ?? null });
+            slots.push({ label: b.label, time: b.time, ...(point || {}), device, farm_name: latestRow?.farm_name ?? null });
           }
 
           if (includeRaw) {
@@ -643,13 +638,16 @@ async function getFarmerSensorDashboard(req, res) {
           raw: includeRaw ? raw || [] : null,
           window: slotRange === 'custom' ? { start: req.query.start, end: req.query.end } : null,
           units: {
-            temperature: '°C',
+            air_temp: '°C',
+            soil_temp: '°C',
+            air_humidity: '%',
             moisture: '%',
-            ec: 'µS/cm',
+            ec: 'dS/m',
             ph: '',
-            n: 'mg/kg',
-            p: 'mg/kg',
-            k: 'mg/kg',
+            nitrogen: 'mg/kg',
+            phosphorus: 'mg/kg',
+            potassium: 'mg/kg',
+            salinity: 'ppt',
           },
         },
       });
@@ -677,15 +675,17 @@ async function getFarmerSensorDashboard(req, res) {
         time: timeIso,
         timestampLocal: formatTimestampLocal(row?.time ?? null, { includeTZName: true }),
         device,
-        farm: row?.farm ?? null,
-        temperature: safeValue(row?.temperature),
-        moisture: safeValue(row?.moisture ?? row?.humidity),
-        humidity: safeValue(row?.humidity ?? row?.moisture),
+        farm_name: row?.farm_name ?? null,
+        air_temp: safeValue(row?.air_temp),
+        soil_temp: safeValue(row?.soil_temp),
+        air_humidity: safeValue(row?.air_humidity),
+        moisture: safeValue(row?.moisture),
         ec: safeValue(row?.ec),
         ph: safeValue(row?.pH ?? row?.ph),
-        n: safeValue(row?.nitrogen ?? row?.n),
-        p: safeValue(row?.phosphorus ?? row?.p),
-        k: safeValue(row?.potassium ?? row?.k),
+        nitrogen: safeValue(row?.nitrogen),
+        phosphorus: safeValue(row?.phosphorus),
+        potassium: safeValue(row?.potassium),
+        salinity: safeValue(row?.salinity),
       };
     }).filter((p) => p.time);
 
@@ -709,13 +709,16 @@ async function getFarmerSensorDashboard(req, res) {
         // Optional raw table reference: keep it aligned with series (already sampled)
         raw: sampledPoints,
         units: {
-          temperature: '°C',
+          air_temp: '°C',
+          soil_temp: '°C',
+          air_humidity: '%',
           moisture: '%',
-          ec: 'µS/cm',
+          ec: 'dS/m',
           ph: '',
-          n: 'mg/kg',
-          p: 'mg/kg',
-          k: 'mg/kg',
+          nitrogen: 'mg/kg',
+          phosphorus: 'mg/kg',
+          potassium: 'mg/kg',
+          salinity: 'ppt',
         },
       },
     });

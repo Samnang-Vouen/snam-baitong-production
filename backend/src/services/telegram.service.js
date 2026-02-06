@@ -1,7 +1,10 @@
 const axios = require('axios');
 const { token, defaultChatId } = require('../config/telegram');
 
+const TELEGRAM_MOCK = String(process.env.TELEGRAM_MOCK || '').toLowerCase() === 'true';
+
 function getBaseUrl() {
+  if (TELEGRAM_MOCK) return null;
   if (!token) {
     throw new Error('TELEGRAM_BOT_TOKEN is not set. Add it to environment or .env');
   }
@@ -13,10 +16,17 @@ async function sendMessage({ chatId, text, parseMode, disableNotification = fals
     throw new Error('text is required and must be a string');
   }
   const cid = chatId || defaultChatId;
+
+  if (TELEGRAM_MOCK) {
+    console.log('[Telegram:mock] sendMessage', { chatId: cid, text, parseMode, disableNotification });
+    return { message_id: Date.now(), chat: { id: cid }, text };
+  }
+
   if (!cid) {
     throw new Error('chatId is required (set TELEGRAM_CHAT_ID env or pass in request)');
   }
-  const url = `${getBaseUrl()}/sendMessage`;
+  const base = getBaseUrl();
+  const url = `${base}/sendMessage`;
   const payload = {
     chat_id: cid,
     text,
@@ -36,7 +46,12 @@ async function sendMessage({ chatId, text, parseMode, disableNotification = fals
 }
 
 async function getUpdates(limit = 5) {
-  const url = `${getBaseUrl()}/getUpdates`;
+  if (TELEGRAM_MOCK) {
+    console.log('[Telegram:mock] getUpdates', { limit });
+    return { ok: true, result: [] };
+  }
+  const base = getBaseUrl();
+  const url = `${base}/getUpdates`;
   const res = await axios.get(url, { params: { limit }, timeout: 10000 });
   return res.data;
 }

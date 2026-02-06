@@ -167,27 +167,35 @@ async function updateLastSeen(deviceId, timestamp = null) {
  * Get all sensors assigned to a farmer
  */
 async function getFarmerSensors(farmerId) {
-  const rows = await mysql.query(
-    `SELECT 
-      s.id,
-      s.device_id,
-      s.sensor_type,
-      s.model,
-      s.status,
-      s.installation_date,
-      s.last_seen,
-      s.location_tag,
-      s.physical_location,
-      fs.assigned_at,
-      fs.notes as assignment_notes
-    FROM sensors s
-    JOIN farmer_sensors fs ON s.id = fs.sensor_id
-    WHERE fs.farmer_id = ? AND fs.is_active = 1
-    ORDER BY fs.assigned_at DESC`,
-    [farmerId]
-  );
-
-  return rows || [];
+  try {
+    const rows = await mysql.query(
+      `SELECT 
+        s.id,
+        s.device_id,
+        s.sensor_type,
+        s.model,
+        s.status,
+        s.installation_date,
+        s.last_seen,
+        s.location_tag,
+        s.physical_location,
+        fs.assigned_at,
+        fs.notes as assignment_notes
+      FROM sensors s
+      JOIN farmer_sensors fs ON s.id = fs.sensor_id
+      WHERE fs.farmer_id = ? AND fs.is_active = 1
+      ORDER BY fs.assigned_at DESC`,
+      [farmerId]
+    );
+    return rows || [];
+  } catch (err) {
+    // If the new tables do not exist yet, return empty list to allow legacy fallback
+    const msg = String(err && (err.sqlMessage || err.message) || '').toLowerCase();
+    if (err && err.code === 'ER_NO_SUCH_TABLE' || msg.includes('farmer_sensors') || msg.includes("table '") && msg.includes('sensors')) {
+      return [];
+    }
+    throw err;
+  }
 }
 
 /**

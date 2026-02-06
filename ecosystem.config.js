@@ -27,5 +27,20 @@ module.exports = {
         HOST: '127.0.0.1',
       },
     },
+    {
+      name: 'snam-baitong-scheduler',
+      cwd: './backend',
+      script: 'src/scheduler.js',
+      exec_mode: 'fork',
+      instances: 1,
+      time: true,
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'development'
+      },
+      env_production: {
+        NODE_ENV: 'production'
+      }
+    }
   ],
 };

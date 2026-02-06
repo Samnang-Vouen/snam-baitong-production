@@ -24,8 +24,10 @@ function createApp() {
   // So req.protocol/req.ip are correct behind Nginx/Load Balancer
   app.set('trust proxy', true);
 
-  // Initialize scheduler for daily cache clearing at 1AM
-  initScheduler();
+  // Initialize scheduler only if explicitly enabled on the API process
+  if (String(process.env.ENABLE_SCHEDULER_IN_API || 'false').toLowerCase() === 'true') {
+    initScheduler();
+  }
 
   // Middleware
   // Allow requests from frontend URL and same origin (since frontend is served from backend)

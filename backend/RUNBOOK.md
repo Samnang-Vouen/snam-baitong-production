@@ -73,6 +73,18 @@ MQTT_TLS=false
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 
+### Local Development Safety (recommended)
+
+To avoid impacting production while developing locally:
+
+- Use `backend/.env.local` instead of `.env`. See `backend/.env.local.example`.
+- Run backend on port `5000` by default in development.
+- Disable real MQTT publish/connect with `DISABLE_MQTT=true`.
+- Mock Telegram calls with `TELEGRAM_MOCK=true` (no real messages).
+- Disable Influx SQL in local dev with `DISABLE_INFLUX=true` (queries return empty arrays).
+- Point frontend to local API via `frontend/.env.local` (`VITE_API_BASE_URL=http://localhost:5000/api`).
+- Ensure your local MySQL points to a local database (never production).
+
 # InfluxDB
 INFLUXDB_URL=https://eu-central-1-1.aws.cloud2.influxdata.com/
 INFLUXDB_TOKEN=your_token
@@ -92,6 +104,26 @@ This will:
 - Create necessary database tables
 - Seed initial admin user (credentials from `.env`)
 
+#### Recommended: Create a dedicated dev MySQL user
+
+```sql
+-- Connect as MySQL root or an admin user
+CREATE DATABASE IF NOT EXISTS snam_baitong_dev;
+CREATE USER 'devuser'@'localhost' IDENTIFIED BY 'changeme';
+GRANT ALL PRIVILEGES ON snam_baitong_dev.* TO 'devuser'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Then configure `backend/.env.local`:
+
+```
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=devuser
+MYSQL_PASSWORD=changeme
+MYSQL_DATABASE=snam_baitong_dev
+```
+
 ---
 
 ## Running the Services
@@ -99,7 +131,7 @@ This will:
 ### Quick Start (All Services)
 
 You'll need **THREE terminal windows/tabs** to run all services simultaneously:
-
+PORT=5000
 #### Terminal 1: MQTT Broker
 ```bash
 cd backend
@@ -164,10 +196,15 @@ MQTT_WS_PORT=8083            # WebSocket port
 MQTT_WS_PATH=/mqtt           # WebSocket path
 MQTT_USERNAME=admin          # Optional auth
 MQTT_PASSWORD=admin123       # Optional auth
-```
+Server is running on http://0.0.0.0:5000
 
 **Testing Connection:**
 ```bash
+
+If `DISABLE_MQTT=true`, MQTT will be mocked:
+```
+[MQTT] Disabled (DISABLE_MQTT=true). Using mock client.
+```
 # Using mosquitto_pub (if installed)
 mosquitto_pub -h localhost -p 1883 -t "sensor/data" -m '{"temp":25}'
 
@@ -176,7 +213,7 @@ mosquitto_pub -h localhost -p 1883 -t "sensor/data" -m '{"temp":25}'
 ```
 
 **Topics:**
-- `sensor/data` - Sensor data ingestion
+Forwarding   https://xxxx-xx-xxx-xxx-xxx.ngrok-free.app -> http://localhost:5000
 - `control/+` - Device control commands
 - `device/status` - Device status updates
 - `farm/pump/control` - Pump control (ON/OFF)

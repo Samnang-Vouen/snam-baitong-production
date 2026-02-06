@@ -8,7 +8,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { formatValue, isOutOfRange } from '../../utils/sensorRanges';
+import { formatValue, getMetricStatus } from '../../utils/sensorRanges';
+import { useLanguage } from '../LanguageToggle';
 
 function defaultColorForMetric(metric) {
   switch (metric) {
@@ -55,7 +56,30 @@ function labelForMetric(metric) {
   }
 }
 
-function CustomTooltip({ active, payload, label }) {
+function normalizeMetricKey(metric) {
+  switch (metric) {
+    case 'temperature':
+      return 'air_temp';
+    case 'humidity':
+      return 'air_humidity';
+    case 'moisture':
+      return 'moisture';
+    case 'ec':
+      return 'ec';
+    case 'ph':
+      return 'ph';
+    case 'n':
+      return 'nitrogen';
+    case 'p':
+      return 'phosphorus';
+    case 'k':
+      return 'potassium';
+    default:
+      return metric;
+  }
+}
+
+function CustomTooltip({ active, payload, label, t }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="border rounded bg-white shadow-sm p-2" style={{ minWidth: '220px' }}>
@@ -64,7 +88,8 @@ function CustomTooltip({ active, payload, label }) {
         {payload.map((p) => {
           const metric = p.dataKey;
           const value = p.value;
-          const out = isOutOfRange(metric, value);
+          const mKey = normalizeMetricKey(metric);
+          const status = getMetricStatus(mKey, value);
           return (
             <div key={metric} className="d-flex align-items-center justify-content-between gap-3">
               <div className="d-flex align-items-center gap-2">
@@ -74,8 +99,8 @@ function CustomTooltip({ active, payload, label }) {
                 />
                 <span className="small text-muted">{labelForMetric(metric)}</span>
               </div>
-              <div className={out ? 'fw-semibold text-danger small' : 'fw-semibold small'}>
-                {formatValue(metric, value)}
+              <div className={status.outOfRange ? 'fw-semibold text-danger small' : 'fw-semibold small'}>
+                {formatValue(metric, value)} {`(${t(status.labelKey)})`}
               </div>
             </div>
           );
@@ -89,6 +114,7 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function SlotGroupedBarChart({ title, description, data, metrics }) {
+  const { t } = useLanguage();
   const safeData = (Array.isArray(data) ? data : []).map((r) => {
     if (!r) return r;
     if (r.ph == null && r.pH != null) return { ...r, ph: r.pH };
@@ -109,7 +135,7 @@ export default function SlotGroupedBarChart({ title, description, data, metrics 
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip t={t} />} />
               <Legend />
               {metrics.map((metric) => (
                 <Bar

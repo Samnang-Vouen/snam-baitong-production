@@ -7,7 +7,7 @@ const configuredBase =
 
 // In production behind Nginx, use a relative base so the browser calls the same origin.
 // This avoids CORS + Private Network Access (PNA) errors from attempting to call localhost.
-const API_BASE = configuredBase || (import.meta.env.PROD ? "/api" : "http://localhost:3000/api");
+const API_BASE = configuredBase || (import.meta.env.PROD ? "/api" : "http://localhost:5000/api");
 
 const client = axios.create({ 
   baseURL: API_BASE,

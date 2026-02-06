@@ -19,13 +19,16 @@ export default function SensorRawTable({ data }) {
   const columns = useMemo(
     () => [
       { key: 'time', label: t('timestamp') },
-      { key: 'temperature', label: t('temperature') },
+      { key: 'air_temp', label: t('air_temp') },
+      { key: 'soil_temp', label: t('soil_temp') },
+      { key: 'air_humidity', label: t('air_humidity') },
       { key: 'moisture', label: t('moisture') },
       { key: 'ec', label: t('ec') },
       { key: 'ph', label: t('ph') },
-      { key: 'n', label: 'N' },
-      { key: 'p', label: 'P' },
-      { key: 'k', label: 'K' },
+      { key: 'nitrogen', label: t('nitrogen') },
+      { key: 'phosphorus', label: t('phosphorus') },
+      { key: 'potassium', label: t('potassium') },
+      { key: 'salinity', label: t('salinity') },
     ],
     [t]
   );
@@ -92,7 +95,7 @@ export default function SensorRawTable({ data }) {
                         ? formatDateTime(r.timestampLocal, lang)
                         : '-'}
                   </td>
-                  {['temperature', 'moisture', 'ec', 'ph', 'n', 'p', 'k'].map((metric) => {
+                  {['air_temp', 'soil_temp', 'air_humidity', 'moisture', 'ec', 'ph', 'nitrogen', 'phosphorus', 'potassium', 'salinity'].map((metric) => {
                     const bad = isOutOfRange(metric, r?.[metric]);
                     return (
                       <td key={metric} className={bad ? 'fw-semibold text-danger' : ''}>

@@ -123,7 +123,7 @@ const FarmerProfile = () => {
             },
             critical: {
               en: "Critical",
-              km: "ធ្ងន់ធ្ងរ"
+              km: "ស្ថានភាពធ្ងន់ធ្ងរ"
             },
             pending: {
               en: "Data entry in progress",
@@ -165,8 +165,8 @@ const FarmerProfile = () => {
           id: backendData.id,
           profile: {
             name: {
-              en: `${backendData.firstName} ${backendData.lastName}`,
-              km: `${backendData.firstName} ${backendData.lastName}`
+              en: `${backendData.lastName} ${backendData.firstName}`,
+              km: `${backendData.lastName} ${backendData.firstName}`
             },
             phoneNumber: backendData.phoneNumber,
             profileImage: backendData.profileImageUrl || "https://via.placeholder.com/150"

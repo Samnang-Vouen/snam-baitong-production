@@ -1,6 +1,16 @@
 const path = require('path');
+const fs = require('fs');
 const axios = require('axios');
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+// Prefer .env.local if present, otherwise fall back to .env
+(() => {
+  const localPath = path.resolve(__dirname, '../../.env.local');
+  const defaultPath = path.resolve(__dirname, '../../.env');
+  if (fs.existsSync(localPath)) {
+    require('dotenv').config({ path: localPath });
+  } else {
+    require('dotenv').config({ path: defaultPath });
+  }
+})();
 
 async function main() {
   const token = process.env.TELEGRAM_BOT_TOKEN;

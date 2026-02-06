@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useRef, useState } from 'react';
 import { useLanguage } from './LanguageToggle';
+import { useAuth } from '../contexts/AuthContext';
 import { farmerService } from '../services/farmerService';
 import { formatDate } from '../utils/date';
 
 export default function CropCard({ crop, onDelete, onViewFarmer }) {
   const { t, lang } = useLanguage();
+  const { role } = useAuth();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const prefetchedRef = useRef(false);
 
@@ -41,6 +43,10 @@ export default function CropCard({ crop, onDelete, onViewFarmer }) {
   const handleDeleteClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    // Prevent ministry users from deleting farmer records
+    if (crop?.type === 'farmer' && role === 'ministry') {
+      return;
+    }
     setShowDeleteModal(true);
   };
 
@@ -61,6 +67,7 @@ export default function CropCard({ crop, onDelete, onViewFarmer }) {
   
   // Check if this is a farmer card
   if (crop.type === 'farmer') {
+    const canDeleteFarmer = role === 'admin';
     return (
       <>
         <div
@@ -75,22 +82,24 @@ export default function CropCard({ crop, onDelete, onViewFarmer }) {
           <div className="card h-100 shadow-sm border-success position-relative" style={{ cursor: 'pointer', transition: 'transform 0.2s' }} 
                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}>
-            <button 
-              className="btn btn-danger position-absolute top-0 end-0"
-              style={{ 
-                zIndex: 10, 
-                width: 'auto',
-                padding: '0.4rem 0.75rem',
-                fontSize: 'clamp(0.75rem, 2vw, 0.85rem)',
-                margin: '0.5rem',
-                borderRadius: '0.25rem'
-              }}
-              onClick={handleDeleteClick}
-              title={t('delete')}
-            >
-              <i className="bi bi-trash me-1"></i>
-              <span>{t('delete')}</span>
-            </button>
+            {canDeleteFarmer && (
+              <button 
+                className="btn btn-danger position-absolute top-0 end-0"
+                style={{ 
+                  zIndex: 10, 
+                  width: 'auto',
+                  padding: '0.4rem 0.75rem',
+                  fontSize: 'clamp(0.75rem, 2vw, 0.85rem)',
+                  margin: '0.5rem',
+                  borderRadius: '0.25rem'
+                }}
+                onClick={handleDeleteClick}
+                title={t('delete')}
+              >
+                <i className="bi bi-trash me-1"></i>
+                <span>{t('delete')}</span>
+              </button>
+            )}
             
             {/* Ministry Feedback Badge */}
             {crop.hasUnviewedFeedback && (
@@ -111,7 +120,7 @@ export default function CropCard({ crop, onDelete, onViewFarmer }) {
                 <div className="text-center mb-3">
                   <img 
                     src={crop.profileImageUrl} 
-                    alt={`${crop.firstName} ${crop.lastName}`}
+                    alt={`${crop.lastName} ${crop.firstName}`}
                     className="rounded-circle img-thumbnail"
                     style={{ 
                       width: 'clamp(60px, 15vw, 80px)', 
@@ -125,7 +134,7 @@ export default function CropCard({ crop, onDelete, onViewFarmer }) {
               
               <h5 className="card-title mb-3 text-success" style={{ fontSize: 'clamp(0.9rem, 3vw, 1.25rem)' }}>
                 <i className="bi bi-person-circle me-2"></i>
-                {crop.firstName} {crop.lastName}
+                {crop.lastName} {crop.firstName} 
               </h5>
               <p className="mb-2" style={{ fontSize: 'clamp(0.8rem, 2.5vw, 1rem)' }}>
                 <i className="bi bi-telephone-fill text-success me-2"></i>
@@ -155,7 +164,7 @@ export default function CropCard({ crop, onDelete, onViewFarmer }) {
         </div>
 
         {/* Delete Confirmation Modal */}
-        {showDeleteModal && (
+        {canDeleteFarmer && showDeleteModal && (
           <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={handleCancelDelete}>
             <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
               <div className="modal-content">
