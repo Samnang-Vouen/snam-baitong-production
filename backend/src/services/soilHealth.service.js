@@ -191,7 +191,19 @@ async function querySensorData(sensorDevices, location, startDate, endDate, limi
     ${limitClause}
   `;
   
-  const rows = await sqlService.query(sql);
+  let rows;
+  try {
+    rows = await sqlService.query(sql);
+  } catch (e) {
+    const msg = String(e?.message || '');
+    // Fallback: some schemas store pH as uppercase with quotes
+    if (/(unknown\s+column|column\s+not\s+found|invalid\s+identifier|not\s+found|no\s+field\s+named)/i.test(msg)) {
+      const fallbackSql = sql.replace(/\bph\b/g, '"pH" as ph');
+      rows = await sqlService.query(fallbackSql);
+    } else {
+      throw e;
+    }
+  }
   // If we applied a limit and sorted DESC, reverse to get chronological order
   return limit && rows ? rows.reverse() : (rows || []);
 }
