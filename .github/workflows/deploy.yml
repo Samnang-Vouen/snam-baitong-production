@@ -42,12 +42,19 @@ jobs:
           echo "Runner SSH directory contents:"
           ls -la ~/.ssh || true
 
+      - name: Write SSH private key to file
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/actions_deploy_key
+          chmod 600 ~/.ssh/actions_deploy_key
+
       - name: Add host to known_hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Test SSH connection
+      - name: Test SSH connection (using key file)
         run: |
           set -euo pipefail
           if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then echo "Missing SSH_PRIVATE_KEY secret"; exit 1; fi
@@ -55,7 +62,7 @@ jobs:
           if [ -z "${{ secrets.SSH_USER }}" ]; then echo "Missing SSH_USER secret"; exit 1; fi
           if [ -z "${{ secrets.SSH_PORT }}" ]; then echo "Missing SSH_PORT secret"; exit 1; fi
           echo "Attempting SSH to ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PORT }}"
-          ssh -vvv -o StrictHostKeyChecking=yes -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "echo ssh_ok"
+          ssh -vvv -i ~/.ssh/actions_deploy_key -o StrictHostKeyChecking=yes -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "echo ssh_ok"
 
       - name: Rsync repository to server
         run: |
@@ -64,12 +71,12 @@ jobs:
             --exclude "**/node_modules" \
             --exclude "backend/.env" \
             --exclude "**/.env" \
-            -e "ssh -p ${{ secrets.SSH_PORT }}" \
+            -e "ssh -i ~/.ssh/actions_deploy_key -p ${{ secrets.SSH_PORT }}" \
             ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
 
       - name: Install backend deps + reload PM2
         run: |
-          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" <<'SSH'
+          ssh -i ~/.ssh/actions_deploy_key -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" <<'SSH'
           set -euo pipefail
 
           DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
