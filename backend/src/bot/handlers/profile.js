@@ -31,14 +31,28 @@ async function handleProfile(ctx) {
     const farmerRows = await db.query('SELECT * FROM farmers WHERE id = ? LIMIT 1', [farmerId]);
     const farmer = Array.isArray(farmerRows) && farmerRows.length ? farmerRows[0] : null;
 
-    // Resolve sensor devices via sensors service; fallback to legacy field
+    // Resolve sensor devices via sensors service; fallback to legacy fields
     let devices = [];
     try {
       const sensors = await sensorsService.getFarmerSensors(farmerId);
-      devices = sensors.map(s => s.device_id).filter(Boolean);
-    } catch (_) {
+      devices = Array.isArray(sensors) ? sensors.map(s => s.device_id).filter(Boolean) : [];
+    } catch (_) {}
+
+    // If new schema exists but has no relationships yet, still fall back.
+    if (!devices.length) {
       const legacy = farmer?.sensor_devices || '';
-      devices = legacy ? legacy.split(',').map(d => d.trim()).filter(Boolean) : [];
+      devices = legacy ? String(legacy).split(',').map(d => d.trim()).filter(Boolean) : [];
+    }
+
+    // Last-resort legacy: some deployments still use farmers.device_id
+    if (!devices.length && farmer?.device_id) {
+      devices = [String(farmer.device_id).trim()].filter(Boolean);
+    }
+
+    // Persist a default device to session for other bot features
+    if (devices.length) {
+      ctx.session.deviceId = ctx.session.deviceId || devices[0];
+      ctx.session.deviceIds = devices;
     }
     const devicesText = devices.length ? devices.join(', ') : (isKhmer ? 'មិនមាន' : 'None');
 
