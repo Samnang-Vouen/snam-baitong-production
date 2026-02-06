@@ -9,7 +9,9 @@
     "test": "node --test",
     "seed:admins": "node src/scripts/seed-admins.js",
     "reset:password": "node src/scripts/reset-user-password.js",
-    "mqtt:broker": "node scripts/dev-mqtt-broker.js"
+    "mqtt:broker": "node scripts/dev-mqtt-broker.js",
+    "migrate:sensors": "node src/scripts/migrate-to-sensors-table.js"
+    "migrate:sensors": "node src/scripts/migrate-to-sensors-table.js"
   },
   "keywords": [],
   "author": "",

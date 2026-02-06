@@ -417,7 +417,12 @@ function aggregateRowsIntoWindows({ rowsDesc, windows, endMs }) {
 async function getAllowedDevicesForFarmer(farmerId, farmerRow) {
   try {
     const sensors = await sensorsService.getFarmerSensors(farmerId);
-    return sensors.map((s) => s.device_id).filter(Boolean);
+    const fromJunction = sensors.map((s) => s.device_id).filter(Boolean);
+    if (fromJunction.length > 0) return fromJunction;
+    if (farmerRow?.sensor_devices) {
+      return farmerRow.sensor_devices.split(',').map((d) => d.trim()).filter(Boolean);
+    }
+    return [];
   } catch (_) {
     if (farmerRow?.sensor_devices) {
       return farmerRow.sensor_devices.split(',').map((d) => d.trim()).filter(Boolean);
