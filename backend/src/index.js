@@ -1,21 +1,32 @@
-require('dotenv').config();
+// Prefer .env.local if present, otherwise fall back to .env
+const path = require('path');
+const fs = require('fs');
+(() => {
+  const localPath = path.resolve(__dirname, '../.env.local');
+  const defaultPath = path.resolve(__dirname, '../.env');
+  if (fs.existsSync(localPath)) {
+    require('dotenv').config({ path: localPath });
+  } else {
+    require('dotenv').config({ path: defaultPath });
+  }
+})();
 const createApp = require('./app');
 const { seedPredefinedAdmins } = require('./scripts/seed-admins');
 let sqlService;
 try {
-  sqlService = require('./services/sql');
+  sqlService = require('./services/mysql');
 } catch (e) {
-  console.error('\nFailed to initialize SQL service.');
+  console.error('\nFailed to initialize MySQL service.');
   console.error(e.message);
   process.exit(1);
 }
 
-// Initialize MQTT connection (non-fatal if broker is unreachable; it will reconnect)
+// Initialize MQTT connection (uses mock client if DISABLE_MQTT=true)
 const mqttService = require('./services/mqtt.service');
 mqttService.init();
 
 const app = createApp();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 3000 : 5000);
 const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
 
 // Initialize MySQL auth-related schema and (optionally) seed predefined admins
@@ -52,7 +63,24 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`   POST /api/users - Create user (admin)`);
   console.log(`   GET  /api/comments - List comments`);
   console.log(`   POST /api/comments - Add comment`);
-  console.log(`\nMQTT: ${mqttService.status().connected ? 'connected' : 'connecting...'} | Pump topic: ${mqttService.status().pumpTopic}`);
+  console.log(`\nMQTT: ${mqttService.status().mocked ? 'mocked (disabled)' : (mqttService.status().connected ? 'connected' : 'connecting...')} | Pump topic: ${mqttService.status().pumpTopic}`);
+
+  // Optionally launch Telegram bot as part of backend
+  const enableBot = String(process.env.ENABLE_TELEGRAM_BOT || 'true').toLowerCase() === 'true';
+  if (enableBot) {
+    try {
+      const botInstance = require('./bot'); // Will launch if TELEGRAM_TOKEN is set
+      if (botInstance) {
+        console.log('Telegram bot initialized from backend.');
+      } else {
+        console.log('Telegram bot not started (missing TELEGRAM_TOKEN).');
+      }
+    } catch (e) {
+      console.error('Failed to initialize Telegram bot:', e.message);
+    }
+  } else {
+    console.log('Telegram bot launch disabled (ENABLE_TELEGRAM_BOT=false).');
+  }
 });
 
 function shutdown(signal) {
