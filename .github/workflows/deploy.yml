@@ -34,34 +34,113 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           log-public-key: false
 
-      - name: Add host to known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
-
-      - name: Test SSH connection
+      - name: Verify SSH keys loaded
         run: |
           set -euo pipefail
+          echo "Listing identities from ssh-agent:"
+          ssh-add -l || echo "No identities loaded"
+          echo "Runner SSH directory contents:"
+          ls -la ~/.ssh || true
+
+      - name: Write SSH private key to file
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/actions_deploy_key
+          chmod 600 ~/.ssh/actions_deploy_key
+
+      - name: Validate SSH secrets and DNS
+        run: |
+          set -euo pipefail
+          HOST="${{ secrets.SSH_HOST }}"
+          PORT="${{ secrets.SSH_PORT }}"
+          HOST_IP="${{ secrets.SSH_HOST_IP }}"
+          if [ -z "$HOST" ] || [ -z "$PORT" ]; then
+            echo "SSH_HOST and SSH_PORT secrets must be set"; exit 1; fi
+          if [[ "$HOST" == *@* ]]; then
+            echo "SSH_HOST should be hostname/IP only (no user@)"; exit 1; fi
+          if [[ "$HOST" == *:* ]]; then
+            echo "SSH_HOST should not include a port; use SSH_PORT"; exit 1; fi
+          if [ -n "$HOST_IP" ]; then
+            echo "Using SSH_HOST_IP override: $HOST_IP"
+            TARGET_HOST="$HOST_IP"
+          else
+            echo "Checking DNS resolution for $HOST..."
+            if getent hosts "$HOST" >/dev/null 2>&1; then
+              echo "DNS OK via getent."
+            elif ping -c 1 -W 3 "$HOST" >/dev/null 2>&1; then
+              echo "DNS OK via ping."
+            else
+              echo "DNS resolution failed for $HOST.";
+              echo "Diagnostics:";
+              which dig >/dev/null 2>&1 && dig +short "$HOST" || echo "dig not available";
+              getent hosts "$HOST" || true;
+              echo "If this is a private hostname, use a self-hosted runner or set SSH_HOST to a public IP (or provide SSH_HOST_IP).";
+              exit 1; fi
+            TARGET_HOST="$HOST"
+          fi
+          echo "Selected target host: $TARGET_HOST"
+
+      - name: Add host to known_hosts
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          HOST="${{ secrets.SSH_HOST }}"
+          HOST_IP="${{ secrets.SSH_HOST_IP }}"
+          PORT="${{ secrets.SSH_PORT }}"
+          TARGET_HOST="${HOST_IP:-$HOST}"
+
+          # Attempt with selected target (IPv4 forced), then fallback to IPv6
+          for attempt in 1 2 3; do
+            if ssh-keyscan -4 -T 5 -p "$PORT" "$TARGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "Host key (IPv4) added to known_hosts for $TARGET_HOST."; break
+            elif ssh-keyscan -6 -T 5 -p "$PORT" "$TARGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "Host key (IPv6) added to known_hosts for $TARGET_HOST."; break
+            else
+              echo "ssh-keyscan attempt $attempt failed for $TARGET_HOST; retrying..."; sleep 2
+            fi
+          done
+
+          # If using hostname, also add the first resolved IPv4 to known_hosts (helps when connecting via IP)
+          if [ "$TARGET_HOST" = "$HOST" ]; then
+            RESOLVED_IPV4=$(getent ahostsv4 "$HOST" | awk '{print $1; exit}')
+            if [ -n "$RESOLVED_IPV4" ]; then
+              ssh-keyscan -4 -T 5 -p "$PORT" "$RESOLVED_IPV4" >> ~/.ssh/known_hosts 2>/dev/null || true
+              echo "Added host key for IPv4 $RESOLVED_IPV4 to known_hosts."
+            fi
+          fi
+
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Test SSH connection (using key file)
+        run: |
+          set -euo pipefail
+          HOST_IP="${{ secrets.SSH_HOST_IP }}"
+          TARGET_HOST="${HOST_IP:-${{ secrets.SSH_HOST }}}"
           if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then echo "Missing SSH_PRIVATE_KEY secret"; exit 1; fi
           if [ -z "${{ secrets.SSH_HOST }}" ]; then echo "Missing SSH_HOST secret"; exit 1; fi
           if [ -z "${{ secrets.SSH_USER }}" ]; then echo "Missing SSH_USER secret"; exit 1; fi
           if [ -z "${{ secrets.SSH_PORT }}" ]; then echo "Missing SSH_PORT secret"; exit 1; fi
-          echo "Attempting SSH to ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PORT }}"
-          ssh -vvv -o StrictHostKeyChecking=yes -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "echo ssh_ok"
+          echo "Attempting SSH to ${{ secrets.SSH_USER }}@$TARGET_HOST:${{ secrets.SSH_PORT }}"
+          ssh -vvv -i ~/.ssh/actions_deploy_key -o StrictHostKeyChecking=yes -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@$TARGET_HOST" "echo ssh_ok"
 
       - name: Rsync repository to server
         run: |
+          HOST_IP="${{ secrets.SSH_HOST_IP }}"
+          TARGET_HOST="${HOST_IP:-${{ secrets.SSH_HOST }}}"
           rsync -az --delete \
             --exclude ".git" \
             --exclude "**/node_modules" \
             --exclude "backend/.env" \
             --exclude "**/.env" \
-            -e "ssh -p ${{ secrets.SSH_PORT }}" \
-            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+            -e "ssh -i ~/.ssh/actions_deploy_key -p ${{ secrets.SSH_PORT }}" \
+            ./ "${{ secrets.SSH_USER }}@$TARGET_HOST:${{ secrets.DEPLOY_PATH }}/"
 
       - name: Install backend deps + reload PM2
         run: |
-          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" <<'SSH'
+          HOST_IP="${{ secrets.SSH_HOST_IP }}"
+          TARGET_HOST="${HOST_IP:-${{ secrets.SSH_HOST }}}"
+          ssh -i ~/.ssh/actions_deploy_key -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@$TARGET_HOST" <<'SSH'
           set -euo pipefail
 
           DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
