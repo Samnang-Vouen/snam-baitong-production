@@ -17,8 +17,17 @@ async function sendMessage({ chatId, text, parseMode, disableNotification = fals
   }
   const cid = chatId || defaultChatId;
 
+  const redactOtp = (t) => {
+    const s = String(t || '');
+    // Redact 4-digit codes when message appears to be an OTP/code.
+    if (/\b(otp|code|verification|verify)\b/i.test(s)) {
+      return s.replace(/\b\d{4}\b/g, '****');
+    }
+    return s;
+  };
+
   if (TELEGRAM_MOCK) {
-    console.log('[Telegram:mock] sendMessage', { chatId: cid, text, parseMode, disableNotification });
+    console.log('[Telegram:mock] sendMessage', { chatId: cid, text: redactOtp(text), parseMode, disableNotification });
     return { message_id: Date.now(), chat: { id: cid }, text };
   }
 

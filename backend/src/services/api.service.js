@@ -6,9 +6,28 @@ const DEFAULT_PORT = (process.env.NODE_ENV === 'production') ? 3000 : 5000;
 const BASE_URL = process.env.BACKEND_BASE_URL || `http://127.0.0.1:${DEFAULT_PORT}`;
 
 async function verifyPhone({ telegramUserId, chatId, phoneNumber }) {
-  const url = `${BASE_URL}/api/telegram/verify`;
-  const { data } = await axios.post(url, { telegramUserId, chatId, phoneNumber });
-  return data;
+  // Backward compatible alias for OTP request
+  return requestOtp({ telegramUserId, chatId, phoneNumber });
+}
+
+async function requestOtp({ telegramUserId, chatId, phoneNumber }) {
+  const url = `${BASE_URL}/api/telegram/verify/request-otp`;
+  try {
+    const { data } = await axios.post(url, { telegramUserId, chatId, phoneNumber });
+    return data;
+  } catch (e) {
+    return (e && e.response && e.response.data) ? e.response.data : { success: false, error: 'OTP request failed' };
+  }
+}
+
+async function confirmOtp({ telegramUserId, chatId, phoneNumber, otp }) {
+  const url = `${BASE_URL}/api/telegram/verify/confirm-otp`;
+  try {
+    const { data } = await axios.post(url, { telegramUserId, chatId, phoneNumber, otp });
+    return data;
+  } catch (e) {
+    return (e && e.response && e.response.data) ? e.response.data : { success: false, error: 'OTP confirmation failed' };
+  }
 }
 
 async function getStatusForTelegram({ telegramUserId, chatId }) {
@@ -48,6 +67,8 @@ async function getFarmerWeeklySoilHealth({ farmerId }) {
 
 module.exports = {
   verifyPhone,
+  requestOtp,
+  confirmOtp,
   getStatusForTelegram,
   checkVerified,
   getWeather,

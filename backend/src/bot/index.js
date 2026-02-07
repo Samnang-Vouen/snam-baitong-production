@@ -43,6 +43,7 @@ if (bot) bot.use((ctx, next) => {
     const isStartCmd = !!ctx.message && typeof ctx.message.text === 'string' && ctx.message.text.trim().toLowerCase().startsWith('/start');
     const isContact = !!ctx.message && !!ctx.message.contact;
     const isAwaitingPhone = !!ctx.session.awaitingPhone;
+    const isAwaitingOtp = !!ctx.session.awaitingOtp;
     const isCallback = !!ctx.callbackQuery;
     const callbackData = ctx.callbackQuery?.data || '';
 
@@ -51,6 +52,8 @@ if (bot) bot.use((ctx, next) => {
         if (isStartCmd) return next();
         // Allow contact or text when we are awaiting phone
         if (isAwaitingPhone && (isContact || (!!ctx.message && typeof ctx.message.text === 'string'))) return next();
+        // Allow text when awaiting OTP
+        if (isAwaitingOtp && (!!ctx.message && typeof ctx.message.text === 'string')) return next();
         // Block callbacks and other commands
                 if (isCallback) {
                         // Allow basic navigation callbacks without verification
@@ -63,7 +66,11 @@ if (bot) bot.use((ctx, next) => {
                             : '🔒 Please verify your phone number to continue';
                         return ctx.answerCbQuery(msg).catch(() => {});
                 }
-        // For any other message, prompt phone again
+        // For any other message, prompt again
+        if (isAwaitingOtp) {
+            const { promptForOtp } = require('./handlers/verify');
+            return promptForOtp(ctx);
+        }
         return promptForPhone(ctx);
     }
     return next();

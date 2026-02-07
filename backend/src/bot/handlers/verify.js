@@ -25,6 +25,8 @@ function normalizePhone(p) {
 async function promptForPhone(ctx) {
   if (!ctx.session) ctx.session = {};
   ctx.session.awaitingPhone = true;
+  ctx.session.awaitingOtp = false;
+  ctx.session.pendingPhone = undefined;
   const isKhmer = ctx.session.is_khmer !== false;
   const text = isKhmer
     ? '👋 សូមវាយបញ្ចូលលេខទូរស័ព្ទ(ឧ. 0123456789)'
@@ -33,9 +35,22 @@ async function promptForPhone(ctx) {
   await ctx.reply(text, Markup.removeKeyboard()).catch(() => {});
 }
 
+async function promptForOtp(ctx) {
+  if (!ctx.session) ctx.session = {};
+  ctx.session.awaitingPhone = false;
+  ctx.session.awaitingOtp = true;
+  const isKhmer = ctx.session.is_khmer !== false;
+  const text = isKhmer
+    ? '🔐 សូមវាយបញ្ចូលលេខកូដ OTP 4 ខ្ទង់ ដែលបានផ្ញើមកក្នុង chat នេះ។\n\nបើ OTP ផុតកំណត់ សូមវាយ "resend" ដើម្បីផ្ញើ OTP ថ្មី។'
+    : '🔐 Please enter the 4-digit OTP sent to this chat.\n\nIf it expired, type "resend" to get a new OTP.';
+  await ctx.reply(text, Markup.removeKeyboard()).catch(() => {});
+}
+
 async function completeVerification(ctx, farmer) {
   ctx.session.verified = true;
   ctx.session.awaitingPhone = false;
+  ctx.session.awaitingOtp = false;
+  ctx.session.pendingPhone = undefined;
   ctx.session.farmer = farmer;
   // Auto-assign province/coords from farmer record
   try {
@@ -100,43 +115,143 @@ async function handleContactVerify(ctx) {
   const telegramUserId = ctx.from?.id;
   const chatId = ctx.chat?.id;
   try {
-    const res = await api.verifyPhone({ telegramUserId, chatId, phoneNumber: phone });
-    if (res && res.success && res.verified) {
+    const res = await api.requestOtp({ telegramUserId, chatId, phoneNumber: phone });
+    if (res && res.success && res.verified && res.farmer) {
       await completeVerification(ctx, res.farmer);
-    } else {
-      const msg = ctx.session.is_khmer !== false ? '❌ លេខទូរស័ព្ទមិនត្រឹមត្រូវ។ សូមព្យាយាមម្តងទៀត។' : '❌ Invalid phone number. Please try again.';
-      await ctx.reply(msg).catch(() => {});
-      await promptForPhone(ctx);
+      return;
     }
+    if (res && res.success && res.otpSent) {
+      ctx.session.pendingPhone = phone;
+      await ctx.reply(ctx.session.is_khmer !== false ? '✅ បានផ្ញើ OTP ទៅក្នុង chat នេះ។' : '✅ OTP sent to this chat.').catch(() => {});
+      await promptForOtp(ctx);
+      return;
+    }
+
+    // Known errors
+    const err = String(res?.error || '').toLowerCase();
+    if (/already linked/.test(err)) {
+      const msg = ctx.session.is_khmer !== false
+        ? '❌ លេខទូរស័ព្ទនេះបានភ្ជាប់ជាមួយ Telegram ផ្សេងរួចហើយ។'
+        : '❌ This phone number is already linked to another Telegram user.';
+      await ctx.reply(msg).catch(() => {});
+      return;
+    }
+
+    const msg = ctx.session.is_khmer !== false
+      ? '❌ លេខទូរស័ព្ទមិនត្រឹមត្រូវ ឬមិនមានក្នុងប្រព័ន្ធ។'
+      : '❌ Phone number not found or invalid.';
+    await ctx.reply(msg).catch(() => {});
+    await promptForPhone(ctx);
   } catch (e) {
-    const msg = ctx.session.is_khmer !== false ? '❌ កំហុសក្នុងការផ្ទៀងផ្ទាត់។ សូមព្យាយាមម្តងទៀត។' : '❌ Verification error. Please try again.';
+    const msg = ctx.session.is_khmer !== false ? '❌ កំហុសក្នុងការផ្ញើ OTP។ សូមព្យាយាមម្តងទៀត។' : '❌ OTP error. Please try again.';
     await ctx.reply(msg).catch(() => {});
     await promptForPhone(ctx);
   }
 }
 
 async function handleTextVerify(ctx) {
-  // Only treat as phone input when awaiting
-  if (!ctx.session?.awaitingPhone) return;
   const text = String(ctx.message?.text || '').trim();
   if (!text) return;
-  const phone = normalizePhone(text);
+
   const telegramUserId = ctx.from?.id;
   const chatId = ctx.chat?.id;
-  try {
-    const res = await api.verifyPhone({ telegramUserId, chatId, phoneNumber: phone });
-    if (res && res.success && res.verified) {
-      await completeVerification(ctx, res.farmer);
-    } else {
-      const msg = ctx.session.is_khmer !== false ? '❌ លេខទូរស័ព្ទមិនត្រឹមត្រូវ។ សូមព្យាយាមម្តងទៀត។' : '❌ Invalid phone number. Please try again.';
-      await ctx.reply(msg).catch(() => {});
-      await promptForPhone(ctx);
+
+  // OTP step
+  if (ctx.session?.awaitingOtp) {
+    const lower = text.toLowerCase();
+    const isResend = lower === 'resend' || lower === 'send again' || lower === 'otp' || lower === 'send otp';
+    if (isResend) {
+      const pn = ctx.session.pendingPhone;
+      if (!pn) {
+        await promptForPhone(ctx);
+        return;
+      }
+      const r = await api.requestOtp({ telegramUserId, chatId, phoneNumber: pn });
+      if (r && r.success && r.otpSent) {
+        await ctx.reply(ctx.session.is_khmer !== false ? '✅ បានផ្ញើ OTP ថ្មី។' : '✅ New OTP sent.').catch(() => {});
+        await promptForOtp(ctx);
+        return;
+      }
+      await ctx.reply(ctx.session.is_khmer !== false ? '❌ មិនអាចផ្ញើ OTP ថ្មីបានទេ។' : '❌ Unable to resend OTP.').catch(() => {});
+      return;
     }
+
+    const otp = normalizePhone(text);
+    const pn = ctx.session.pendingPhone;
+    if (!pn) {
+      await promptForPhone(ctx);
+      return;
+    }
+    if (!/^\d{4}$/.test(otp.replace(/[^0-9]/g, ''))) {
+      const msg = ctx.session.is_khmer !== false ? '❌ សូមវាយ OTP 4 ខ្ទង់។' : '❌ Please enter the 4-digit OTP.';
+      await ctx.reply(msg).catch(() => {});
+      return;
+    }
+
+    const res = await api.confirmOtp({ telegramUserId, chatId, phoneNumber: pn, otp });
+    if (res && res.success && res.verified && res.farmer) {
+      await completeVerification(ctx, res.farmer);
+      return;
+    }
+    if (res && res.expired) {
+      const msg = ctx.session.is_khmer !== false
+        ? '⏰ OTP ផុតកំណត់។ សូមវាយ "resend" ដើម្បីផ្ញើ OTP ថ្មី។'
+        : '⏰ OTP expired. Type "resend" to get a new OTP.';
+      await ctx.reply(msg).catch(() => {});
+      return;
+    }
+    if (typeof res?.attemptsLeft === 'number') {
+      const msg = ctx.session.is_khmer !== false
+        ? `❌ OTP មិនត្រឹមត្រូវ។ នៅសល់ ${res.attemptsLeft} ដង។`
+        : `❌ Wrong OTP. ${res.attemptsLeft} attempt(s) left.`;
+      await ctx.reply(msg).catch(() => {});
+      if (res.attemptsLeft <= 0) {
+        const rmsg = ctx.session.is_khmer !== false
+          ? 'សូមវាយ "resend" ដើម្បីផ្ញើ OTP ថ្មី។'
+          : 'Type "resend" to get a new OTP.';
+        await ctx.reply(rmsg).catch(() => {});
+      }
+      return;
+    }
+
+    const msg = ctx.session.is_khmer !== false ? '❌ មិនអាចផ្ទៀងផ្ទាត់ OTP បានទេ។' : '❌ OTP verification failed.';
+    await ctx.reply(msg).catch(() => {});
+    return;
+  }
+
+  // Phone step
+  if (!ctx.session?.awaitingPhone) return;
+  const phone = normalizePhone(text);
+  try {
+    const res = await api.requestOtp({ telegramUserId, chatId, phoneNumber: phone });
+    if (res && res.success && res.verified && res.farmer) {
+      await completeVerification(ctx, res.farmer);
+      return;
+    }
+    if (res && res.success && res.otpSent) {
+      ctx.session.pendingPhone = phone;
+      await ctx.reply(ctx.session.is_khmer !== false ? '✅ បានផ្ញើ OTP ទៅក្នុង chat នេះ។' : '✅ OTP sent to this chat.').catch(() => {});
+      await promptForOtp(ctx);
+      return;
+    }
+    const err = String(res?.error || '').toLowerCase();
+    if (/already linked/.test(err)) {
+      const msg = ctx.session.is_khmer !== false
+        ? '❌ លេខទូរស័ព្ទនេះបានភ្ជាប់ជាមួយ Telegram ផ្សេងរួចហើយ។'
+        : '❌ This phone number is already linked to another Telegram user.';
+      await ctx.reply(msg).catch(() => {});
+      return;
+    }
+    const msg = ctx.session.is_khmer !== false
+      ? '❌ លេខទូរស័ព្ទមិនត្រឹមត្រូវ ឬមិនមានក្នុងប្រព័ន្ធ។'
+      : '❌ Phone number not found or invalid.';
+    await ctx.reply(msg).catch(() => {});
+    await promptForPhone(ctx);
   } catch (e) {
-    const msg = ctx.session.is_khmer !== false ? '❌ កំហុសក្នុងការផ្ទៀងផ្ទាត់។ សូមព្យាយាមម្តងទៀត។' : '❌ Verification error. Please try again.';
+    const msg = ctx.session.is_khmer !== false ? '❌ កំហុសក្នុងការផ្ញើ OTP។ សូមព្យាយាមម្តងទៀត។' : '❌ OTP error. Please try again.';
     await ctx.reply(msg).catch(() => {});
     await promptForPhone(ctx);
   }
 }
 
-module.exports = { promptForPhone, handleContactVerify, handleTextVerify };
+module.exports = { promptForPhone, promptForOtp, handleContactVerify, handleTextVerify };

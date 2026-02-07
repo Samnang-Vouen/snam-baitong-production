@@ -606,7 +606,7 @@ async function updateFarmer(req, res) {
         const newPhoneNorm = normalizePhone(phoneNumber);
         if (prevPhoneNorm !== newPhoneNorm) {
           // Update bound telegram_users phone_number for this farmer
-          await db.query('CREATE TABLE IF NOT EXISTS telegram_users (\n            id INT AUTO_INCREMENT PRIMARY KEY,\n            telegram_user_id BIGINT NOT NULL,\n            chat_id BIGINT NULL,\n            farmer_id BIGINT NULL,\n            phone_number VARCHAR(50) NULL,\n            verified_at TIMESTAMP NULL,\n            UNIQUE KEY uniq_telegram_user (telegram_user_id),\n            KEY idx_chat_id (chat_id),\n            KEY idx_farmer_id (farmer_id)\n          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;');
+          await db.query('CREATE TABLE IF NOT EXISTS telegram_users (\n            id INT AUTO_INCREMENT PRIMARY KEY,\n            telegram_user_id BIGINT NOT NULL,\n            chat_id BIGINT NULL,\n            farmer_id BIGINT NULL,\n            phone_number VARCHAR(50) NULL,\n            is_verified TINYINT(1) NOT NULL DEFAULT 0,\n            verified_at TIMESTAMP NULL DEFAULT NULL,\n            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,\n            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n            UNIQUE KEY uniq_telegram_user (telegram_user_id),\n            KEY idx_chat_id (chat_id),\n            KEY idx_farmer_id (farmer_id),\n            KEY idx_phone (phone_number)\n          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;');
           await db.query('UPDATE telegram_users SET phone_number = ? WHERE farmer_id = ?', [newPhoneNorm, id]);
 
           // Notify all bound chats for this farmer

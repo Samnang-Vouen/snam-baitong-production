@@ -18,8 +18,12 @@ router.post('/webhook', telegram.webhook);
 router.get('/webhook', (req, res) => res.json({ ok: true }));
 
 // Verification and bot data endpoints
-// POST /api/telegram/verify - Verify phone against farmers and bind Telegram user
+// POST /api/telegram/verify - Backward compatible: requests OTP for phone verification
 router.post('/verify', telegram.verify);
+// POST /api/telegram/verify/request-otp - Request a 4-digit OTP to be sent to the same chat
+router.post('/verify/request-otp', telegram.requestOtp);
+// POST /api/telegram/verify/confirm-otp - Confirm OTP and mark Telegram user verified
+router.post('/verify/confirm-otp', telegram.confirmOtp);
 // GET /api/telegram/verify/check - Check verification status for a Telegram user
 router.get('/verify/check', telegram.checkVerified);
 // GET /api/telegram/status - Latest sensor status for verified Telegram user
