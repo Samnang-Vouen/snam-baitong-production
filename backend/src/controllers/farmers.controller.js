@@ -607,7 +607,39 @@ async function updateFarmer(req, res) {
         if (prevPhoneNorm !== newPhoneNorm) {
           // Update bound telegram_users phone_number for this farmer
           await db.query('CREATE TABLE IF NOT EXISTS telegram_users (\n            id INT AUTO_INCREMENT PRIMARY KEY,\n            telegram_user_id BIGINT NOT NULL,\n            chat_id BIGINT NULL,\n            farmer_id BIGINT NULL,\n            phone_number VARCHAR(50) NULL,\n            is_verified TINYINT(1) NOT NULL DEFAULT 0,\n            verified_at TIMESTAMP NULL DEFAULT NULL,\n            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,\n            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n            UNIQUE KEY uniq_telegram_user (telegram_user_id),\n            KEY idx_chat_id (chat_id),\n            KEY idx_farmer_id (farmer_id),\n            KEY idx_phone (phone_number)\n          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;');
-          await db.query('UPDATE telegram_users SET phone_number = ? WHERE farmer_id = ?', [newPhoneNorm, id]);
+          // Security: changing the farmer phone invalidates existing Telegram verification.
+          // Force re-verification (OTP) on next bot interaction.
+          await db.query('UPDATE telegram_users SET phone_number = ?, is_verified = 0, verified_at = NULL WHERE farmer_id = ?', [newPhoneNorm, id]);
+
+          // Best-effort: revoke any outstanding OTPs for these Telegram users
+          try {
+            await db.query(`CREATE TABLE IF NOT EXISTS telegram_otp_codes (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              telegram_user_id BIGINT NOT NULL,
+              phone_number VARCHAR(50) NOT NULL,
+              chat_id BIGINT NULL,
+              otp_hash VARCHAR(128) NOT NULL,
+              otp_salt VARCHAR(64) NOT NULL,
+              attempts INT NOT NULL DEFAULT 0,
+              max_attempts INT NOT NULL DEFAULT 3,
+              expires_at DATETIME NOT NULL,
+              used_at DATETIME NULL,
+              revoked_at DATETIME NULL,
+              created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+              KEY idx_tg_user (telegram_user_id),
+              KEY idx_phone (phone_number),
+              KEY idx_expires_at (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
+            const tgIds = await db.query('SELECT telegram_user_id FROM telegram_users WHERE farmer_id = ?', [id]);
+            const ids = (tgIds || []).map(r => r.telegram_user_id).filter(Boolean);
+            if (ids.length) {
+              await db.query(
+                `UPDATE telegram_otp_codes SET revoked_at = NOW()
+                 WHERE used_at IS NULL AND revoked_at IS NULL AND telegram_user_id IN (${ids.map(() => '?').join(',')})`,
+                ids
+              );
+            }
+          } catch (_) {}
 
           // Notify all bound chats for this farmer
           const binds = await db.query('SELECT chat_id FROM telegram_users WHERE farmer_id = ? AND chat_id IS NOT NULL', [id]);
@@ -615,12 +647,14 @@ async function updateFarmer(req, res) {
             const en = [
               'ℹ️ Phone number updated',
               `- New phone: ${newPhoneNorm}`,
-              'If this wasn\'t you, reply HELP'
+              '🔐 For security, Telegram access is temporarily locked.',
+              'Please verify again in the bot using your new phone number (OTP will be sent in this chat).'
             ].join('\n');
             const kh = [
               'ℹ️ លេខទូរស័ព្ទត្រូវបានកែប្រែ',
               `- លេខថ្មី: ${newPhoneNorm}`,
-              'បើមិនមែនអ្នក សូមបញ្ជាក់ដោយសរសេរ HELP'
+              '🔐 ដើម្បីសុវត្ថិភាព ការប្រើប្រាស់ Telegram ត្រូវបានចាក់សោបណ្តោះអាសន្ន។',
+              'សូមផ្ទៀងផ្ទាត់ម្តងទៀតក្នុង bot ដោយប្រើលេខទូរស័ព្ទថ្មី (OTP នឹងផ្ញើក្នុង chat នេះ)។'
             ].join('\n');
             const msg = `${en}\n\n${kh}`;
             // Send to each chat; ignore failures
