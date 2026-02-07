@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { formatValue, getMetricStatus } from '../../utils/sensorRanges';
+import { formatValue, getMetricStatus, normalizeMetricValue } from '../../utils/sensorRanges';
 import { useLanguage } from '../LanguageToggle';
 
 function defaultColorForMetric(metric) {
@@ -42,6 +42,7 @@ function labelForMetric(metric) {
     case 'moisture':
       return 'Moisture';
     case 'ec':
+    case 'ec__ds_m':
       return 'EC';
     case 'ph':
       return 'pH';
@@ -65,6 +66,7 @@ function normalizeMetricKey(metric) {
     case 'moisture':
       return 'moisture';
     case 'ec':
+    case 'ec__ds_m':
       return 'ec';
     case 'ph':
       return 'ph';
@@ -89,7 +91,8 @@ function CustomTooltip({ active, payload, label, t }) {
           const metric = p.dataKey;
           const value = p.value;
           const mKey = normalizeMetricKey(metric);
-          const status = getMetricStatus(mKey, value);
+          const raw = metric === 'ec__ds_m' ? p?.payload?.ec : value;
+          const status = getMetricStatus(mKey, raw);
           return (
             <div key={metric} className="d-flex align-items-center justify-content-between gap-3">
               <div className="d-flex align-items-center gap-2">
@@ -100,7 +103,7 @@ function CustomTooltip({ active, payload, label, t }) {
                 <span className="small text-muted">{labelForMetric(metric)}</span>
               </div>
               <div className={status.outOfRange ? 'fw-semibold text-danger small' : 'fw-semibold small'}>
-                {formatValue(metric, value)} {`(${t(status.labelKey)})`}
+                {formatValue(mKey, raw)} {`(${t(status.labelKey)})`}
               </div>
             </div>
           );
@@ -118,6 +121,10 @@ export default function SlotGroupedBarChart({ title, description, data, metrics 
   const safeData = (Array.isArray(data) ? data : []).map((r) => {
     if (!r) return r;
     if (r.ph == null && r.pH != null) return { ...r, ph: r.pH };
+    if (r.ec != null) {
+      const v = normalizeMetricValue('ec', r.ec);
+      return { ...r, ec__ds_m: Number.isFinite(v) ? v : null };
+    }
     return r;
   });
 
@@ -140,7 +147,7 @@ export default function SlotGroupedBarChart({ title, description, data, metrics 
               {metrics.map((metric) => (
                 <Bar
                   key={metric}
-                  dataKey={metric}
+                  dataKey={metric === 'ec' ? 'ec__ds_m' : metric}
                   name={labelForMetric(metric)}
                   fill={defaultColorForMetric(metric)}
                   isAnimationActive={false}

@@ -7,7 +7,7 @@ import {
   Tooltip,
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import { formatValue, getMetricStatus } from '../../utils/sensorRanges';
+import { formatValue, getMetricStatus, normalizeMetricValue } from '../../utils/sensorRanges';
 import { useLanguage } from '../LanguageToggle';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -92,8 +92,8 @@ export default function ChartJsSlotBarChart({ title, description, data, metrics 
   // This removes empty buckets from the X-axis entirely.
   const filteredRows = rows.filter((r) =>
     metrics.some((metric) => {
-      const v = r?.[metric];
-      return v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+      const v = normalizeMetricValue(metric, r?.[metric]);
+      return Number.isFinite(v);
     })
   );
 
@@ -105,8 +105,8 @@ export default function ChartJsSlotBarChart({ title, description, data, metrics 
     return {
       label: labelForMetric(metric),
       data: filteredRows.map((r) => {
-        const v = r?.[metric];
-        return v === '' || v === undefined ? null : v ?? null;
+        const v = normalizeMetricValue(metric, r?.[metric]);
+        return Number.isFinite(v) ? v : null;
       }),
       borderColor: filteredRows.map((r) => {
         const status = getMetricStatus(metric, r?.[metric]);
@@ -153,10 +153,11 @@ export default function ChartJsSlotBarChart({ title, description, data, metrics 
           label: (ctx) => {
             const metricLabel = ctx?.dataset?.label || ctx?.dataset?.dataKey || '';
             const metric = metrics?.[ctx?.datasetIndex] || null;
-            const v = ctx?.raw;
-            if (!metric) return `${metricLabel}: ${v ?? '-'}`;
-            const status = getMetricStatus(metric, v);
-            const val = formatValue(metric, v);
+            if (!metric) return `${metricLabel}: ${ctx?.raw ?? '-'}`;
+            const idx = ctx?.dataIndex;
+            const raw = filteredRows?.[idx]?.[metric];
+            const status = getMetricStatus(metric, raw);
+            const val = formatValue(metric, raw);
             return `${metricLabel}: ${val} (${t(status.labelKey)})`;
           },
         },

@@ -26,6 +26,17 @@ export function getSalinityPpm(value) {
   return num;
 }
 
+export function normalizeMetricValue(metric, value) {
+  if (value === null || value === undefined || value === '') return Number.NaN;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return Number.NaN;
+
+  if (metric === 'salinity') return getSalinityPpm(num);
+  if (metric === 'ec') return num / 1000;
+
+  return num;
+}
+
 export function isOutOfRange(metric, value) {
   if (value === null || value === undefined) return false;
   if (metric === 'salinity') {
@@ -33,7 +44,7 @@ export function isOutOfRange(metric, value) {
   }
   const range = SENSOR_RANGES[metric];
   if (!range) return false;
-  const num = Number(value);
+  const num = normalizeMetricValue(metric, value);
   if (!Number.isFinite(num)) return false;
   if (range.min !== undefined && num < range.min) return true;
   if (range.max !== undefined && num > range.max) return true;
@@ -43,11 +54,11 @@ export function isOutOfRange(metric, value) {
 export function formatValue(metric, value) {
   if (value === null || value === undefined) return '-';
   if (metric === 'salinity') {
-    const ppm = getSalinityPpm(value);
+    const ppm = normalizeMetricValue(metric, value);
     if (!Number.isFinite(ppm)) return String(value);
     return `${ppm.toFixed(0)} ppm`;
   }
-  const num = Number(value);
+  const num = normalizeMetricValue(metric, value);
   if (!Number.isFinite(num)) return String(value);
 
   const decimals =
@@ -75,9 +86,7 @@ export function formatValue(metric, value) {
 // - Pending when value is missing or invalid
 export function getMetricStatus(metric, value) {
   const range = SENSOR_RANGES[metric];
-  const num = Number(value);
-
-  if (!range || value === null || value === undefined || !Number.isFinite(num)) {
+  if (!range || value === null || value === undefined || value === '') {
     return { labelKey: 'status_pending', variant: 'secondary', outOfRange: false };
   }
 
@@ -87,7 +96,7 @@ export function getMetricStatus(metric, value) {
   // 1500 - 2500: Stress
   // > 2500: Harmful
   if (metric === 'salinity') {
-    const ppm = getSalinityPpm(value);
+    const ppm = normalizeMetricValue(metric, value);
     if (!Number.isFinite(ppm)) {
       return { labelKey: 'status_pending', variant: 'secondary', outOfRange: false };
     }
@@ -96,6 +105,11 @@ export function getMetricStatus(metric, value) {
     if (ppm < 1500) return { labelKey: 'salinity_safe', variant: 'success', outOfRange: false };
     if (ppm < 2500) return { labelKey: 'salinity_stress', variant: 'warning', outOfRange: true };
     return { labelKey: 'salinity_harmful', variant: 'danger', outOfRange: true };
+  }
+
+  const num = normalizeMetricValue(metric, value);
+  if (!Number.isFinite(num)) {
+    return { labelKey: 'status_pending', variant: 'secondary', outOfRange: false };
   }
 
   const below = range.min !== undefined && num < range.min;

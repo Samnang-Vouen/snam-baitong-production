@@ -6,7 +6,7 @@ import SensorRawTable from './SensorRawTable';
 import TimeRangeFilter from './TimeRangeFilter';
 import { useLanguage } from '../LanguageToggle';
 import { formatDateTime } from '../../utils/date';
-import { getSalinityPpm } from '../../utils/sensorRanges';
+import { normalizeMetricValue } from '../../utils/sensorRanges';
 import '../../styles/SensorDashboard.css';
 
 const EMPTY_ARR = [];
@@ -284,10 +284,7 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
       const vals = [];
       for (const p of Array.isArray(slots) ? slots : []) {
         const raw = p?.[key];
-        const v =
-          key === 'salinity'
-            ? getSalinityPpm(raw)
-            : toFiniteNumberOrNaN(raw);
+        const v = normalizeMetricValue(key, raw);
         if (Number.isFinite(v)) vals.push(v);
       }
       if (!vals.length) return null;

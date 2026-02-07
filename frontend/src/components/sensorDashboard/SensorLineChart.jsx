@@ -10,14 +10,15 @@ import {
   Label,
 } from 'recharts';
 
-import { SENSOR_RANGES, formatValue, isOutOfRange } from '../../utils/sensorRanges';
+import { SENSOR_RANGES, formatValue, isOutOfRange, normalizeMetricValue } from '../../utils/sensorRanges';
 import { useLanguage } from '../LanguageToggle';
 import { formatDateTime, formatTime } from '../../utils/date';
 
 function tooltipFormatter(metric) {
-  return (value) => {
-    const bad = isOutOfRange(metric, value);
-    const base = formatValue(metric, value);
+  return (_value, _name, props) => {
+    const raw = props?.payload?.[metric];
+    const bad = isOutOfRange(metric, raw);
+    const base = formatValue(metric, raw);
     return bad ? `${base} (out of range)` : base;
   };
 }
@@ -36,6 +37,17 @@ export default function SensorLineChart({
   const range = SENSOR_RANGES[metric];
   const resolvedYLabel = yLabel || (range?.unit ? `${title} (${range.unit})` : title);
 
+  const chartData = Array.isArray(data)
+    ? data.map((r) => {
+        if (!r) return r;
+        if (metric !== 'ec') return r;
+        const v = normalizeMetricValue('ec', r.ec);
+        return { ...r, ec__ds_m: Number.isFinite(v) ? v : null };
+      })
+    : [];
+
+  const yDataKey = metric === 'ec' ? 'ec__ds_m' : metric;
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-1 text-sm font-semibold text-slate-700">{title}</div>
@@ -52,7 +64,7 @@ export default function SensorLineChart({
       {hasData ? (
         <div style={{ width: '100%', height: 260 }}>
           <ResponsiveContainer>
-            <LineChart data={data} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+            <LineChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis
                 dataKey="time"
@@ -88,7 +100,7 @@ export default function SensorLineChart({
               ) : null}
               <Line
                 type="monotone"
-                dataKey={metric}
+                dataKey={yDataKey}
                 stroke={color}
                 strokeWidth={2}
                 dot={(props) => {
