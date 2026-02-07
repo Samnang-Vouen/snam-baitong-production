@@ -6,6 +6,7 @@ import SensorRawTable from './SensorRawTable';
 import TimeRangeFilter from './TimeRangeFilter';
 import { useLanguage } from '../LanguageToggle';
 import { formatDateTime } from '../../utils/date';
+import { getSalinityPpm } from '../../utils/sensorRanges';
 import '../../styles/SensorDashboard.css';
 
 const EMPTY_ARR = [];
@@ -50,10 +51,10 @@ function filterRowsWithAnyMetric(rows, keys) {
   return rows.filter((r) => metrics.some((k) => Number.isFinite(toFiniteNumberOrNaN(r?.[k]))));
 }
 
-function SummaryTile({ label, icon, stats, unit }) {
+function SummaryTile({ label, icon, stats, unit, decimals = 2 }) {
   const { t } = useLanguage();
   const hasStats = !!stats && Number.isFinite(stats.min) && Number.isFinite(stats.avg) && Number.isFinite(stats.max);
-  const fmt = (v) => (Number.isFinite(v) ? v.toFixed(2) : '-');
+  const fmt = (v) => (Number.isFinite(v) ? v.toFixed(decimals) : '-');
 
   if (!hasStats) return null;
 
@@ -282,7 +283,11 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
     const calc = (key) => {
       const vals = [];
       for (const p of Array.isArray(slots) ? slots : []) {
-        const v = toFiniteNumberOrNaN(p?.[key]);
+        const raw = p?.[key];
+        const v =
+          key === 'salinity'
+            ? getSalinityPpm(raw)
+            : toFiniteNumberOrNaN(raw);
         if (Number.isFinite(v)) vals.push(v);
       }
       if (!vals.length) return null;
@@ -321,7 +326,7 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
       { key: 'nitrogen', label: `${t('nitrogen')} (N)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
       { key: 'phosphorus', label: `${t('phosphorus')} (P)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
       { key: 'potassium', label: `${t('potassium')} (K)`, icon: 'bi bi-diagram-3', unit: 'mg/kg' },
-      { key: 'salinity', label: t('salinity'), icon: 'bi bi-water', unit: 'ppt' },
+      { key: 'salinity', label: t('salinity'), icon: 'bi bi-water', unit: 'ppm', decimals: 0 },
     ].filter((i) => !!stats?.[i.key]),
     [stats, t]
   );
@@ -595,7 +600,7 @@ export default function FarmerSensorDashboard({ farmerId, device: controlledDevi
                 <div className="row g-3">
                   {summaryItems.map((i) => (
                     <div key={i.key} className="col-12 col-md-6 col-xl-4">
-                      <SummaryTile label={i.label} icon={i.icon} stats={stats?.[i.key]} unit={i.unit} />
+                      <SummaryTile label={i.label} icon={i.icon} stats={stats?.[i.key]} unit={i.unit} decimals={i.decimals} />
                     </div>
                   ))}
                 </div>

@@ -9,11 +9,28 @@ export const SENSOR_RANGES = {
   nitrogen: { min: 0, max: 200, unit: 'mg/kg' },
   phosphorus: { min: 0, max: 200, unit: 'mg/kg' },
   potassium: { min: 0, max: 300, unit: 'mg/kg' },
-  salinity: { min: 0, max: 40, unit: 'ppt' },
+  // Salinity thresholds in this app follow ppm guidance.
+  // Incoming data may be in ppt (often <= 40) or ppm; see getSalinityPpm().
+  salinity: { unit: 'ppm' },
 };
+
+// Normalize salinity input to ppm.
+// Heuristic:
+// - Values <= 50 are treated as ppt (e.g., 0.8, 1.5, 2.5)
+// - Larger values are treated as ppm (e.g., 800, 1500, 2500)
+export function getSalinityPpm(value) {
+  if (value === null || value === undefined || value === '') return Number.NaN;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return Number.NaN;
+  if (num <= 50) return num * 1000;
+  return num;
+}
 
 export function isOutOfRange(metric, value) {
   if (value === null || value === undefined) return false;
+  if (metric === 'salinity') {
+    return getMetricStatus(metric, value).outOfRange;
+  }
   const range = SENSOR_RANGES[metric];
   if (!range) return false;
   const num = Number(value);
@@ -25,6 +42,11 @@ export function isOutOfRange(metric, value) {
 
 export function formatValue(metric, value) {
   if (value === null || value === undefined) return '-';
+  if (metric === 'salinity') {
+    const ppm = getSalinityPpm(value);
+    if (!Number.isFinite(ppm)) return String(value);
+    return `${ppm.toFixed(0)} ppm`;
+  }
   const num = Number(value);
   if (!Number.isFinite(num)) return String(value);
 
@@ -37,8 +59,7 @@ export function formatValue(metric, value) {
     metric === 'ph' ||
     metric === 'nitrogen' ||
     metric === 'phosphorus' ||
-    metric === 'potassium' ||
-    metric === 'salinity'
+    metric === 'potassium'
       ? 2
       : 0;
   const range = SENSOR_RANGES[metric];
@@ -60,15 +81,25 @@ export function getMetricStatus(metric, value) {
     return { labelKey: 'status_pending', variant: 'secondary', outOfRange: false };
   }
 
+  // Salinity (ppm) thresholds (Vegetables):
+  // < 800: Excellent
+  // 800 - 1500: Safe
+  // 1500 - 2500: Stress
+  // > 2500: Harmful
+  if (metric === 'salinity') {
+    const ppm = getSalinityPpm(value);
+    if (!Number.isFinite(ppm)) {
+      return { labelKey: 'status_pending', variant: 'secondary', outOfRange: false };
+    }
+
+    if (ppm < 800) return { labelKey: 'salinity_excellent', variant: 'success', outOfRange: false };
+    if (ppm < 1500) return { labelKey: 'salinity_safe', variant: 'success', outOfRange: false };
+    if (ppm < 2500) return { labelKey: 'salinity_stress', variant: 'warning', outOfRange: true };
+    return { labelKey: 'salinity_harmful', variant: 'danger', outOfRange: true };
+  }
+
   const below = range.min !== undefined && num < range.min;
   const above = range.max !== undefined && num > range.max;
-
-  // Special handling for salinity
-  if (metric === 'salinity') {
-    if (below) return { labelKey: 'salinity_low_deficient', variant: 'warning', outOfRange: true };
-    if (above) return { labelKey: 'salinity_high_excess', variant: 'danger', outOfRange: true };
-    return { labelKey: 'appropriate', variant: 'success', outOfRange: false };
-  }
 
   if (!below && !above) {
     return { labelKey: 'appropriate', variant: 'success', outOfRange: false };
