@@ -152,15 +152,30 @@ const MenuService = {
             return Number.isFinite(n) ? n : null;
         };
 
+        const pickFirst = (obj, keys) => {
+            if (!obj || typeof obj !== 'object') return null;
+            for (const k of keys) {
+                if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return obj[k];
+            }
+            return null;
+        };
+
         if (!data) {
             const msg = isKhmer ? '❌ មិនមានទិន្នន័យ' : '❌ No data';
             return `${isKhmer ? '📊 **ស្ថានភាពដី**' : '📊 **Soil Status**'}\n-----------------------------------\n${msg}`;
         }
 
-        const moisture = safeNum(data.moisture);
-        const soilTemp = safeNum(data.soil_temp);
-        const airTemp = safeNum(data.air_temp);
-        const airHum = safeNum(data.air_humidity);
+        // Support multiple field conventions (Influx/SQL snapshots vary by measurement)
+        const moisture = safeNum(pickFirst(data, ['moisture', 'soil_moisture', 'vwc']));
+        const soilTemp = safeNum(pickFirst(data, ['soil_temp', 'soil_temperature', 'temperature', 'temp_soil']));
+        const airTemp = safeNum(pickFirst(data, ['air_temp', 'air_temperature', 'temp_air']));
+        const airHum = safeNum(pickFirst(data, ['air_humidity', 'humidity', 'hum_air']));
+
+        const nitrogen = safeNum(pickFirst(data, ['nitrogen', 'n']));
+        const phosphorus = safeNum(pickFirst(data, ['phosphorus', 'p']));
+        const potassium = safeNum(pickFirst(data, ['potassium', 'k']));
+        const salinityRaw = safeNum(pickFirst(data, ['salinity']));
+        const ecRaw = safeNum(pickFirst(data, ['ec', 'conductivity']));
 
         const classifyMoisture = (m) => {
             if (m === null) return isKhmer ? 'មិនមានទិន្នន័យ' : 'No data';
@@ -185,6 +200,51 @@ const MenuService = {
             if (h < 40) return isKhmer ? 'ទាប' : 'Low';
             if (h <= 70) return isKhmer ? 'មធ្យម' : 'Medium';
             return isKhmer ? 'ខ្ពស់' : 'High';
+        };
+
+        const classifyNpk = (v) => {
+            if (v === null) return isKhmer ? 'ទាប' : 'Low';
+            // Some devices report a small 0–50-ish scale; others mg/kg.
+            if (v <= 60) {
+                if (v < 15) return isKhmer ? 'ទាប' : 'Low';
+                if (v <= 30) return isKhmer ? 'មធ្យម' : 'Medium';
+                return isKhmer ? 'ខ្ពស់' : 'High';
+            }
+            // mg/kg-ish thresholds (broad, crop-agnostic)
+            if (v < 20) return isKhmer ? 'ទាប' : 'Low';
+            if (v <= 60) return isKhmer ? 'មធ្យម' : 'Medium';
+            return isKhmer ? 'ខ្ពស់' : 'High';
+        };
+
+        const classifySalinity = (s) => {
+            if (s === null) return isKhmer ? 'មធ្យម' : 'Medium';
+            // If it looks like ppm (hundreds+), use ppm thresholds.
+            if (s > 20) {
+                if (s <= 800) return isKhmer ? 'ទាប' : 'Low';
+                if (s <= 1200) return isKhmer ? 'មធ្យម' : 'Medium';
+                return isKhmer ? 'ខ្ពស់' : 'High';
+            }
+            // Otherwise treat as dS/m-ish.
+            if (s < 0.4) return isKhmer ? 'ទាប' : 'Low';
+            if (s <= 1.0) return isKhmer ? 'មធ្យម' : 'Medium';
+            return isKhmer ? 'ខ្ពស់' : 'High';
+        };
+
+        const classifyAbsorption = (m) => {
+            if (m === null) return isKhmer ? 'មធ្យម' : 'Medium';
+            if (m > 70) return isKhmer ? 'មិនល្អ' : 'Poor';
+            if (m >= 25) return isKhmer ? 'ល្អ' : 'Good';
+            return isKhmer ? 'មធ្យម' : 'Medium';
+        };
+
+        const classifySoilCondition = () => {
+            if (data?.hardware_fault) return isKhmer ? 'មានបញ្ហា' : 'Issue';
+            const m = classifyMoisture(moisture);
+            const s = classifySalinity(salinityRaw);
+            const okMoist = isKhmer ? (m === 'ធម្មតា') : (m === 'Normal');
+            const okSal = isKhmer ? (s === 'មធ្យម' || s === 'ទាប') : (s === 'Medium' || s === 'Low');
+            if (okMoist && okSal) return isKhmer ? 'ធម្មតា' : 'Normal';
+            return isKhmer ? 'ត្រូវយកចិត្តទុកដាក់' : 'Attention';
         };
 
         const now = new Date();
@@ -224,10 +284,12 @@ const MenuService = {
             ? (isKhmer ? 'មានបញ្ហា' : 'Issue detected')
             : (data ? (isKhmer ? 'ដំណើរការធម្មតា' : 'Normal') : (isKhmer ? 'មិនមានទិន្នន័យ' : 'No data'));
 
-        const title = isKhmer ? '📊 **ស្ថានភាពដី**' : '📊 **Soil Status**';
+        const title = isKhmer ? '📊 ស្ថានភាពដី' : '📊 Soil Status';
 
-        const sec1 = isKhmer ? '💧 **១. ស្ថានភាពទូទៅ**' : '💧 **1. General Conditions**';
-        const sec2 = isKhmer ? '🌿 **២. ការគ្រប់គ្រងដំណាំ**' : '🌿 **2. Crop Management**';
+        const sec1 = isKhmer ? '💧 ១. ស្ថានភាពទូទៅ' : '💧 1. General Conditions';
+        const sec2 = isKhmer ? '🧬 ២. ស្ថានភាពជីវជាតិដី' : '🧬 2. Soil Nutrients';
+        const sec3 = isKhmer ? '🌾 ៣. គុណភាពដី' : '🌾 3. Soil Quality';
+        const sec4 = isKhmer ? '🌿 ៤. ការគ្រប់គ្រងដំណាំ' : '🌿 4. Crop Management';
 
         const genLines = isKhmer
             ? [
@@ -243,6 +305,32 @@ const MenuService = {
                 `   🌱 Air humidity: ${classifyHumidity(airHum)}`,
             ];
 
+        const nutrientLines = isKhmer
+            ? [
+                `   🌱 ជីអាសូត (N)៖ ${classifyNpk(nitrogen)}`,
+                `   🌱 ជីផូស្វ័រ (P)៖ ${classifyNpk(phosphorus)}`,
+                `   🌱 ជីប៉ូតាស្យូម (K)៖ ${classifyNpk(potassium)}`,
+                '   ℹ️ ព័ត៌មានប៉ាន់ស្មានតាមការប្រើជី និងប្រវត្តិស្រែ',
+            ]
+            : [
+                `   🌱 Nitrogen (N): ${classifyNpk(nitrogen)}`,
+                `   🌱 Phosphorus (P): ${classifyNpk(phosphorus)}`,
+                `   🌱 Potassium (K): ${classifyNpk(potassium)}`,
+                '   ℹ️ Estimated from fertilizer use and field history',
+            ];
+
+        const qualityLines = isKhmer
+            ? [
+                `   🌱 សភាពដី៖ ${classifySoilCondition()}`,
+                `   🌱 ជាតិប្រៃ៖ ${classifySalinity(salinityRaw)}`,
+                `   🌱 ការស្រូបទឹក៖ ${classifyAbsorption(moisture)}`,
+            ]
+            : [
+                `   🌱 Soil condition: ${classifySoilCondition()}`,
+                `   🌱 Salinity: ${classifySalinity(salinityRaw)}`,
+                `   🌱 Water absorption: ${classifyAbsorption(moisture)}`,
+            ];
+
         const mgmtLines = isKhmer
             ? [
                 `   🌱 ការស្រោចស្រព៖ ${irrigationText}`,
@@ -256,12 +344,8 @@ const MenuService = {
             ];
 
         const faultLine = data?.hardware_fault
-            ? (isKhmer ? `\n⚠️ **ចំណាំ:** ${String(data.hardware_fault)}` : `\n⚠️ **Note:** ${String(data.hardware_fault)}`)
+            ? (isKhmer ? `⚠️ ចំណាំ៖ ${String(data.hardware_fault)}` : `⚠️ Note: ${String(data.hardware_fault)}`)
             : '';
-
-        const infoLine = isKhmer
-            ? `\nℹ️ ទិន្នន័យនេះផ្អែកលើស្ថានភាពប្រព័ន្ធ`
-            : `\nℹ️ This data is based on system status`;
 
         return [
             title,
@@ -270,11 +354,16 @@ const MenuService = {
             ...genLines,
             '',
             sec2,
+            ...nutrientLines,
+            '',
+            sec3,
+            ...qualityLines,
+            '',
+            sec4,
             ...mgmtLines,
             '',
-            `🕒 _Update: ${timeStr}_`,
+            `🕒 Update: ${timeStr}`,
             faultLine,
-            infoLine,
         ].filter(Boolean).join('\n');
     },
 
